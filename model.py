@@ -301,6 +301,9 @@ class TokenRoutedFFN(nn.Module):
         flat_token_indices = (topk_indices + batch_offsets).reshape(-1)
         selected_x = flat_x.index_select(0, flat_token_indices)
         selected_out = self._mlp(selected_x)
+        selected_scores = router_scores.reshape(batch_size * seq_len).index_select(0, flat_token_indices)
+        selected_gates = torch.sigmoid(selected_scores).unsqueeze(-1).to(dtype=selected_out.dtype)
+        selected_out = selected_out * selected_gates
         flat_output = torch.zeros_like(flat_x, dtype=selected_out.dtype)
         flat_output.index_copy_(0, flat_token_indices, selected_out)
         output = flat_output.view(batch_size, seq_len, hidden_dim)
@@ -314,6 +317,7 @@ class TokenRoutedFFN(nn.Module):
             'ffn/active_fraction': torch.tensor(float(active_tokens) / float(seq_len), device=x.device),
             'token_router/score_mean': score_mean,
             'token_router/score_std': score_std,
+            'token_router/gate_mean': selected_gates.mean().detach(),
             'token_router/uses_memory': torch.tensor(1.0 if self.router_uses_memory else 0.0, device=x.device),
             'token_router/hint_norm': router_hint_norm,
         }
