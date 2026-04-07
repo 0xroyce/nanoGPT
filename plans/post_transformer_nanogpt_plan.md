@@ -657,6 +657,19 @@ Next architectural step:
 - add sparse compute routing whose router can condition on the retrieval signal
 - this targets the original “route computation sparsely” goal without destabilizing the validated retrieval path
 
+Updated read after the first retrieval-conditioned MoE benchmark:
+
+- retrieval-conditioned MoE was a trusted negative under the warmed stream protocol
+- it kept retrieval healthy, but the extra expert-dispatch machinery still regressed validation quality
+- the next sparse-compute step should reduce active FFN work more directly
+
+Next architectural step revision:
+
+- keep retrieval as the stable memory path
+- replace the first MoE attempt with retrieval-conditioned token routing over the FFN
+- only a top fraction of tokens should pay the FFN cost in each block, while the others stay on the residual path
+- this is a cleaner test of sparse compute than dispatching every token through a more expensive expert router
+
 
 ## Phase 6.5 - Local Learning Signals
 

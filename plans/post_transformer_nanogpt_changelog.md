@@ -813,6 +813,56 @@ Why this is the next direction:
 - sparse compute routing is still one of the original core goals and is now being tested on top of the stable retrieval branch
 
 
+## Retrieval-Conditioned MoE Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with warmed stream evaluation
+- the same setup plus retrieval-conditioned MoE routing
+
+Observed result:
+
+- retrieval plus multi-timescale optimizer groups reached about `3.3602` validation loss at step `2000`
+- retrieval-conditioned MoE regressed to about `3.4527`
+- the router did use the retrieval hint and expert utilization stayed healthy, but quality still moved the wrong way
+
+Interpretation:
+
+- the first retrieval-conditioned MoE is a trusted negative result
+- sparse compute is still worth pursuing, but not through this heavier expert-dispatch path
+- the next test should reduce active FFN work directly instead of paying extra MoE routing overhead
+
+
+## Retrieval-Conditioned Token-Routed FFN Prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `ffn_token_fraction`
+- added `ffn_mode='token_routed'`
+- token-routed FFN scores tokens with a lightweight router and only sends the top fraction through the dense FFN path
+- the token router can condition on the detached retrieval-memory hint, reusing the same retrieval-first interface instead of adding expert stacks
+- added token-routing diagnostics:
+  - `token_router/score_mean`
+  - `token_router/score_std`
+  - `token_router/uses_memory`
+  - `token_router/hint_norm`
+
+Why this is the next direction:
+
+- it directly reduces active FFN work instead of increasing dispatch complexity
+- it stays aligned with the original sparse-compute goal
+- it keeps retrieval as the validated memory path and routes computation on top of it
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:
