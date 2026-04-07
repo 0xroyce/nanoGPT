@@ -297,11 +297,11 @@ class TokenRoutedFFN(nn.Module):
         topk_indices = torch.topk(router_scores, k=active_tokens, dim=-1).indices
 
         flat_x = x.reshape(batch_size * seq_len, hidden_dim)
-        flat_output = torch.zeros_like(flat_x)
         batch_offsets = torch.arange(batch_size, device=x.device).unsqueeze(1) * seq_len
         flat_token_indices = (topk_indices + batch_offsets).reshape(-1)
         selected_x = flat_x.index_select(0, flat_token_indices)
         selected_out = self._mlp(selected_x)
+        flat_output = torch.zeros_like(flat_x, dtype=selected_out.dtype)
         flat_output.index_copy_(0, flat_token_indices, selected_out)
         output = flat_output.view(batch_size, seq_len, hidden_dim)
 
