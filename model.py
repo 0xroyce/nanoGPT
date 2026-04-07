@@ -879,6 +879,8 @@ class GPTConfig:
     ffn_router_memory_scale: float = 1.0
     use_aux_losses: bool = False
     aux_loss_weights: str = ''
+    use_hard_token_objective: bool = False
+    hard_token_fraction: float = 1.0
 
 
 def _merge_metric_lists(metrics_history):
@@ -937,6 +939,7 @@ class GPT(nn.Module):
         ))
         self.retrieval_memory = RetrievalMemory(config) if config.use_retrieval_memory else None
         self.aux_loss_weights = _parse_aux_loss_weights(config.aux_loss_weights)
+        self.current_hard_token_fraction = config.hard_token_fraction
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
@@ -1006,10 +1009,51 @@ class GPT(nn.Module):
                 x = block(x, router_hint=router_hint)
         x = self.transformer.ln_f(x)
 
+        hard_objective_metrics = {}
+        full_lm_loss = None
+        objective_lm_loss = None
         if targets is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            token_losses = F.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                targets.view(-1),
+                ignore_index=-1,
+                reduction='none',
+            ).view(b, t)
+            valid_mask = targets.ne(-1)
+            valid_losses = token_losses[valid_mask]
+            full_lm_loss = valid_losses.mean() if valid_losses.numel() > 0 else token_losses.new_zeros(())
+            objective_lm_loss = full_lm_loss
+            if (
+                self.training
+                and self.config.use_hard_token_objective
+                and self.current_hard_token_fraction < 1.0
+                and valid_losses.numel() > 0
+            ):
+                selected_tokens = max(
+                    1,
+                    min(valid_losses.numel(), int(math.ceil(valid_losses.numel() * self.current_hard_token_fraction))),
+                )
+                hard_losses = torch.topk(valid_losses, k=selected_tokens).values
+                objective_lm_loss = hard_losses.mean()
+                hard_objective_metrics = {
+                    'objective/hard_token_enabled': torch.tensor(1.0, device=x.device),
+                    'objective/hard_token_fraction': torch.tensor(self.current_hard_token_fraction, device=x.device),
+                    'objective/hard_token_threshold': hard_losses.detach().min(),
+                    'objective/hard_token_selected_fraction': torch.tensor(
+                        float(selected_tokens) / float(valid_losses.numel()),
+                        device=x.device,
+                    ),
+                }
+            elif self.config.use_hard_token_objective:
+                hard_objective_metrics = {
+                    'objective/hard_token_enabled': torch.tensor(1.0, device=x.device),
+                    'objective/hard_token_fraction': torch.tensor(1.0, device=x.device),
+                    'objective/hard_token_threshold': torch.tensor(0.0, device=x.device),
+                    'objective/hard_token_selected_fraction': torch.tensor(1.0, device=x.device),
+                }
+            loss = objective_lm_loss
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
@@ -1020,7 +1064,8 @@ class GPT(nn.Module):
 
         loss_dict = {}
         if loss is not None:
-            loss_dict['lm_loss'] = loss
+            loss_dict['lm_loss'] = full_lm_loss
+            loss_dict['objective_lm_loss'] = objective_lm_loss
             if self.config.use_aux_losses and memory_loss_terms:
                 aux_loss_total = torch.zeros((), device=loss.device, dtype=loss.dtype)
                 for name, aux_loss in memory_loss_terms.items():
@@ -1034,6 +1079,8 @@ class GPT(nn.Module):
 
         metrics = _merge_metric_lists(block_metrics)
         metrics.update(memory_metrics)
+        if self.config.use_hard_token_objective:
+            metrics.update(hard_objective_metrics)
         metrics['model/attention_mode_is_dense'] = torch.tensor(
             1.0 if self.config.attention_mode == 'dense' else 0.0,
             device=x.device,
@@ -1067,6 +1114,9 @@ class GPT(nn.Module):
     def set_memory_update_mode(self, enabled):
         if self.retrieval_memory is not None:
             self.retrieval_memory.set_memory_update_mode(enabled)
+
+    def set_hard_token_fraction(self, fraction):
+        self.current_hard_token_fraction = float(min(max(fraction, 0.0), 1.0))
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):

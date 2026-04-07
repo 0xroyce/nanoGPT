@@ -670,6 +670,18 @@ Next architectural step revision:
 - only a top fraction of tokens should pay the FFN cost in each block, while the others stay on the residual path
 - this is a cleaner test of sparse compute than dispatching every token through a more expensive expert router
 
+Updated read after token-routed FFN benchmarks:
+
+- subtractive token routing was a trusted negative result even after fixing an initial router-training bug
+- cutting baseline FFN compute for half the tokens damaged the retrieval system itself instead of helping
+- the next step should not remove core compute from the winning branch
+
+Next architectural step revision:
+
+- keep retrieval plus multi-timescale optimization fixed as the main backbone
+- move next to a hard-token training objective that focuses learning on the most informative tokens while keeping evaluation on the full-token objective
+- this is the first direct test of the information-theoretic compression and selective-training idea
+
 
 ## Phase 6.5 - Local Learning Signals
 

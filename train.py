@@ -89,6 +89,9 @@ ffn_router_uses_memory = False
 ffn_router_memory_scale = 1.0
 use_aux_losses = False
 aux_loss_weights = ''
+use_hard_token_objective = False
+hard_token_fraction = 1.0
+hard_token_warmup_iters = 0
 batching_mode = 'random'
 stream_eval_warmup_iters = 16
 log_experiment_metrics = False
@@ -235,6 +238,15 @@ def should_return_info():
     return log_experiment_metrics or use_aux_losses
 
 
+def get_active_hard_token_fraction(it):
+    if not use_hard_token_objective:
+        return 1.0
+    if hard_token_warmup_iters <= 0:
+        return hard_token_fraction
+    progress = min(float(it) / float(hard_token_warmup_iters), 1.0)
+    return 1.0 - (1.0 - hard_token_fraction) * progress
+
+
 def get_batch(split):
     global stream_batchers
     if batching_mode == 'stream':
@@ -314,6 +326,8 @@ model_args = dict(
     ffn_router_memory_scale=ffn_router_memory_scale,
     use_aux_losses=use_aux_losses,
     aux_loss_weights=aux_loss_weights,
+    use_hard_token_objective=use_hard_token_objective,
+    hard_token_fraction=hard_token_fraction,
 ) # start with model_args from command line
 if init_from == 'scratch':
     # init a new model from scratch
@@ -427,6 +441,8 @@ def estimate_loss():
         raw_model.reset_memory()
     if hasattr(raw_model, 'set_memory_update_mode'):
         raw_model.set_memory_update_mode(False)
+    if hasattr(raw_model, 'set_hard_token_fraction'):
+        raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
     if batching_mode == 'stream':
         stream_batchers['train'].reset(randomize=True)
     return out, metric_out
@@ -454,6 +470,8 @@ if wandb_log and master_process:
 X, Y = get_batch('train') # fetch the very first batch
 if hasattr(raw_model := (model.module if ddp else model), 'reset_memory'):
     raw_model.reset_memory()
+if hasattr(raw_model, 'set_hard_token_fraction'):
+    raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
 if batching_mode == 'stream':
     stream_batchers['train'].reset(randomize=True)
     X, Y = get_batch('train')
@@ -468,6 +486,8 @@ while True:
     lr = get_lr(iter_num) if decay_lr else learning_rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+    if hasattr(raw_model, 'set_hard_token_fraction'):
+        raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:

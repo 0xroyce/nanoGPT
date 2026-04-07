@@ -863,6 +863,58 @@ Why this is the next direction:
 - it keeps retrieval as the validated memory path and routes computation on top of it
 
 
+## Retrieval-Conditioned Token-Routed FFN Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with warmed stream evaluation
+- the same setup plus retrieval-conditioned token-routed FFN with `ffn_token_fraction=0.5`
+
+Observed result:
+
+- retrieval plus multi-timescale optimizer groups reached about `3.3602` validation loss at step `2000`
+- token-routed FFN regressed badly to about `4.7299`
+- after fixing an initial router-training bug, the run was still strongly negative
+- retrieval entropy blew up to roughly `0.96-1.00`, indicating that the sparse FFN intervention destabilized the retrieval branch itself
+
+Interpretation:
+
+- subtractive token routing is a trusted negative result in this setup
+- routing half the tokens away from the baseline FFN damages the strongest retrieval-first branch instead of helping it
+- the next sparse-compute test should be additive or objective-level, not subtractive
+
+
+## Hard-Token Objective Prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `use_hard_token_objective`
+- added `hard_token_fraction`
+- added `hard_token_warmup_iters`
+- training can now optimize only the hardest token losses while evaluation still reports the full-token language-model loss
+- the active hard-token fraction can ramp from `1.0` down to the target fraction during training
+- added hard-objective diagnostics:
+  - `objective/hard_token_enabled`
+  - `objective/hard_token_fraction`
+  - `objective/hard_token_threshold`
+  - `objective/hard_token_selected_fraction`
+
+Why this is the next direction:
+
+- it directly tests the “do not spend equal learning compute on easy tokens” idea
+- it preserves the winning retrieval plus multi-timescale architecture instead of subtracting core compute from it
+- it is the cleanest first experiment on the information-theoretic compression and selective-training axis
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

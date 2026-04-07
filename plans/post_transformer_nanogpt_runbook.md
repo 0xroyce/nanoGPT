@@ -624,6 +624,34 @@ What to watch:
 - `token_router/hint_norm`
 - `memory/retrieval_entropy`
 
+Trusted token-routing note:
+
+- even after fixing the initial router-training bug, the token-routed FFN run regressed badly to about `4.7299` validation loss versus the warmed stream retrieval baseline at about `3.3602`
+- retrieval entropy also blew up sharply, so do not spend more runs on subtractive token routing
+
+### Hard-Token Objective Benchmark
+
+Fresh design hypothesis:
+
+- keep the winning retrieval plus multi-timescale architecture intact
+- reduce wasted learning effort by optimizing only the hardest token losses during training
+- keep evaluation on the full-token objective so comparisons remain apples-to-apples
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --use_hard_token_objective=True --hard_token_fraction=0.5 --hard_token_warmup_iters=500 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-hard-token-stream-2k | tee owt_memory_s32_k4_multiscale_x2_hard_token_stream_2k.log
+```
+
+What to watch:
+
+- `val loss`
+- `loss_terms lm_loss`
+- `loss_terms objective_lm_loss`
+- `objective/hard_token_fraction`
+- `objective/hard_token_selected_fraction`
+- `memory/retrieval_entropy`
+
 Full repo-style GPT-2 reproduction config:
 
 ```bash
