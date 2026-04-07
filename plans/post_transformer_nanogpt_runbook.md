@@ -652,6 +652,36 @@ What to watch:
 - `objective/hard_token_selected_fraction`
 - `memory/retrieval_entropy`
 
+Trusted hard-token note:
+
+- the first hard-token run regressed to about `4.5080` validation loss versus the warmed stream retrieval baseline at about `3.3602`
+- retrieval itself stayed relatively healthy, so the main problem was the binary objective rather than memory collapse
+- do not spend more runs on hard top-k token selection
+
+### Surprise-Weighted Objective Benchmark
+
+Fresh design hypothesis:
+
+- keep the winning retrieval plus multi-timescale architecture intact
+- keep every token in the objective, but upweight the more surprising ones smoothly
+- ramp the weighting in over time so early training stays well-conditioned
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --use_surprise_weighted_objective=True --surprise_weight_power=1.0 --surprise_weight_cap=2.0 --surprise_weight_warmup_iters=500 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-surprise-weighted-stream-2k | tee owt_memory_s32_k4_multiscale_x2_surprise_weighted_stream_2k.log
+```
+
+What to watch:
+
+- `val loss`
+- `loss_terms lm_loss`
+- `loss_terms objective_lm_loss`
+- `objective/surprise_weight_strength`
+- `objective/surprise_weight_mean`
+- `objective/surprise_weight_max`
+- `memory/retrieval_entropy`
+
 Full repo-style GPT-2 reproduction config:
 
 ```bash

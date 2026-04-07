@@ -682,6 +682,19 @@ Next architectural step revision:
 - move next to a hard-token training objective that focuses learning on the most informative tokens while keeping evaluation on the full-token objective
 - this is the first direct test of the information-theoretic compression and selective-training idea
 
+Updated read after hard-token benchmarks:
+
+- binary hard-token selection was a trusted negative result
+- it hurt full-distribution language modeling even though retrieval itself stayed relatively healthy
+- the problem was the hard cutoff, not the broader “informative tokens matter more” hypothesis
+
+Next architectural step revision:
+
+- keep retrieval plus multi-timescale optimization fixed as the main backbone
+- replace hard token selection with a soft surprise-weighted objective
+- keep all tokens in the loss, but upweight harder ones smoothly with clipping and a warmup schedule
+- this is the cleaner next test of selective training under the current harness
+
 
 ## Phase 6.5 - Local Learning Signals
 

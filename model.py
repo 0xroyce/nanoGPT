@@ -881,6 +881,9 @@ class GPTConfig:
     aux_loss_weights: str = ''
     use_hard_token_objective: bool = False
     hard_token_fraction: float = 1.0
+    use_surprise_weighted_objective: bool = False
+    surprise_weight_power: float = 1.0
+    surprise_weight_cap: float = 2.0
 
 
 def _merge_metric_lists(metrics_history):
@@ -928,6 +931,8 @@ class GPT(nn.Module):
         super().__init__()
         assert config.vocab_size is not None
         assert config.block_size is not None
+        if config.use_hard_token_objective and config.use_surprise_weighted_objective:
+            raise ValueError("use_hard_token_objective and use_surprise_weighted_objective cannot both be True")
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
@@ -940,6 +945,7 @@ class GPT(nn.Module):
         self.retrieval_memory = RetrievalMemory(config) if config.use_retrieval_memory else None
         self.aux_loss_weights = _parse_aux_loss_weights(config.aux_loss_weights)
         self.current_hard_token_fraction = config.hard_token_fraction
+        self.current_surprise_weight_strength = 1.0
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
@@ -1010,6 +1016,7 @@ class GPT(nn.Module):
         x = self.transformer.ln_f(x)
 
         hard_objective_metrics = {}
+        surprise_objective_metrics = {}
         full_lm_loss = None
         objective_lm_loss = None
         if targets is not None:
@@ -1053,6 +1060,27 @@ class GPT(nn.Module):
                     'objective/hard_token_threshold': torch.tensor(0.0, device=x.device),
                     'objective/hard_token_selected_fraction': torch.tensor(1.0, device=x.device),
                 }
+            if self.config.use_surprise_weighted_objective and valid_losses.numel() > 0:
+                surprise_strength = self.current_surprise_weight_strength if self.training else 0.0
+                mean_valid_loss = valid_losses.detach().mean().clamp_min(1e-6)
+                raw_weights = (valid_losses.detach() / mean_valid_loss).pow(self.config.surprise_weight_power)
+                raw_weights = raw_weights.clamp(max=self.config.surprise_weight_cap)
+                surprise_weights = (1.0 - surprise_strength) + surprise_strength * raw_weights
+                surprise_weights = surprise_weights / surprise_weights.mean().clamp_min(1e-6)
+                objective_lm_loss = (valid_losses * surprise_weights).mean()
+                surprise_objective_metrics = {
+                    'objective/surprise_weight_enabled': torch.tensor(1.0, device=x.device),
+                    'objective/surprise_weight_strength': torch.tensor(surprise_strength, device=x.device),
+                    'objective/surprise_weight_mean': surprise_weights.detach().mean(),
+                    'objective/surprise_weight_max': surprise_weights.detach().max(),
+                }
+            elif self.config.use_surprise_weighted_objective:
+                surprise_objective_metrics = {
+                    'objective/surprise_weight_enabled': torch.tensor(1.0, device=x.device),
+                    'objective/surprise_weight_strength': torch.tensor(0.0, device=x.device),
+                    'objective/surprise_weight_mean': torch.tensor(1.0, device=x.device),
+                    'objective/surprise_weight_max': torch.tensor(1.0, device=x.device),
+                }
             loss = objective_lm_loss
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
@@ -1081,6 +1109,8 @@ class GPT(nn.Module):
         metrics.update(memory_metrics)
         if self.config.use_hard_token_objective:
             metrics.update(hard_objective_metrics)
+        if self.config.use_surprise_weighted_objective:
+            metrics.update(surprise_objective_metrics)
         metrics['model/attention_mode_is_dense'] = torch.tensor(
             1.0 if self.config.attention_mode == 'dense' else 0.0,
             device=x.device,
@@ -1117,6 +1147,9 @@ class GPT(nn.Module):
 
     def set_hard_token_fraction(self, fraction):
         self.current_hard_token_fraction = float(min(max(fraction, 0.0), 1.0))
+
+    def set_surprise_weight_strength(self, strength):
+        self.current_surprise_weight_strength = float(min(max(strength, 0.0), 1.0))
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):

@@ -915,6 +915,59 @@ Why this is the next direction:
 - it is the cleanest first experiment on the information-theoretic compression and selective-training axis
 
 
+## Hard-Token Objective Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with warmed stream evaluation
+- the same setup plus a hard-token objective with `hard_token_fraction=0.5`
+
+Observed result:
+
+- retrieval plus multi-timescale optimizer groups reached about `3.3602` validation loss at step `2000`
+- the hard-token objective regressed to about `4.5080`
+- retrieval entropy stayed in a healthier range than the token-routed FFN failure, roughly `0.19`
+- the main failure mode was the objective itself, not a collapse of the retrieval subsystem
+
+Interpretation:
+
+- binary hard-token selection is a trusted negative result in this form
+- it over-focuses the model on the tail of the token-loss distribution and hurts full-distribution calibration
+- the next step should keep all tokens in the objective and reweight them softly instead of dropping half of them
+
+
+## Surprise-Weighted Objective Prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `use_surprise_weighted_objective`
+- added `surprise_weight_power`
+- added `surprise_weight_cap`
+- added `surprise_weight_warmup_iters`
+- training can now upweight harder tokens smoothly while keeping every token in the objective
+- the surprise-weight schedule ramps in over time, and evaluation still reports the full-token loss
+- added weighted-objective diagnostics:
+  - `objective/surprise_weight_enabled`
+  - `objective/surprise_weight_strength`
+  - `objective/surprise_weight_mean`
+  - `objective/surprise_weight_max`
+
+Why this is the next direction:
+
+- it keeps the selective-training idea but removes the brittle top-k cutoff
+- it preserves the winning retrieval plus multi-timescale backbone
+- it is the cleanest soft version of the information-theoretic compression idea in the current harness
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

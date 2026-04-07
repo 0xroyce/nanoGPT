@@ -92,6 +92,10 @@ aux_loss_weights = ''
 use_hard_token_objective = False
 hard_token_fraction = 1.0
 hard_token_warmup_iters = 0
+use_surprise_weighted_objective = False
+surprise_weight_power = 1.0
+surprise_weight_cap = 2.0
+surprise_weight_warmup_iters = 0
 batching_mode = 'random'
 stream_eval_warmup_iters = 16
 log_experiment_metrics = False
@@ -247,6 +251,14 @@ def get_active_hard_token_fraction(it):
     return 1.0 - (1.0 - hard_token_fraction) * progress
 
 
+def get_active_surprise_weight_strength(it):
+    if not use_surprise_weighted_objective:
+        return 0.0
+    if surprise_weight_warmup_iters <= 0:
+        return 1.0
+    return min(float(it) / float(surprise_weight_warmup_iters), 1.0)
+
+
 def get_batch(split):
     global stream_batchers
     if batching_mode == 'stream':
@@ -328,6 +340,9 @@ model_args = dict(
     aux_loss_weights=aux_loss_weights,
     use_hard_token_objective=use_hard_token_objective,
     hard_token_fraction=hard_token_fraction,
+    use_surprise_weighted_objective=use_surprise_weighted_objective,
+    surprise_weight_power=surprise_weight_power,
+    surprise_weight_cap=surprise_weight_cap,
 ) # start with model_args from command line
 if init_from == 'scratch':
     # init a new model from scratch
@@ -443,6 +458,8 @@ def estimate_loss():
         raw_model.set_memory_update_mode(False)
     if hasattr(raw_model, 'set_hard_token_fraction'):
         raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
+    if hasattr(raw_model, 'set_surprise_weight_strength'):
+        raw_model.set_surprise_weight_strength(get_active_surprise_weight_strength(iter_num))
     if batching_mode == 'stream':
         stream_batchers['train'].reset(randomize=True)
     return out, metric_out
@@ -472,6 +489,8 @@ if hasattr(raw_model := (model.module if ddp else model), 'reset_memory'):
     raw_model.reset_memory()
 if hasattr(raw_model, 'set_hard_token_fraction'):
     raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
+if hasattr(raw_model, 'set_surprise_weight_strength'):
+    raw_model.set_surprise_weight_strength(get_active_surprise_weight_strength(iter_num))
 if batching_mode == 'stream':
     stream_batchers['train'].reset(randomize=True)
     X, Y = get_batch('train')
@@ -488,6 +507,8 @@ while True:
         param_group['lr'] = lr
     if hasattr(raw_model, 'set_hard_token_fraction'):
         raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
+    if hasattr(raw_model, 'set_surprise_weight_strength'):
+        raw_model.set_surprise_weight_strength(get_active_surprise_weight_strength(iter_num))
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
