@@ -264,7 +264,10 @@ class RetrievalMemory(nn.Module):
         self.retrieval_weight = config.memory_retrieval_weight
         self.use_persistent_memory = config.use_persistent_memory
         self.persistent_memory_momentum = config.persistent_memory_momentum
+        self.use_memory_controller = config.use_memory_controller
+        self.memory_controller_fraction = config.memory_controller_fraction
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
+        self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
@@ -332,10 +335,31 @@ class RetrievalMemory(nn.Module):
         retrieved = (retrieved * topk_weights.unsqueeze(-1)).sum(dim=2)
         return retrieved, topk_indices, topk_weights, slot_count, topk
 
+    def _compute_controller_mask(self, x):
+        if not self.use_memory_controller:
+            ones = torch.ones_like(x[..., :1])
+            zero_entropy = torch.tensor(0.0, device=x.device)
+            return ones, zero_entropy
+
+        token_count = x.size(1)
+        selected_tokens = max(1, min(token_count, int(round(token_count * self.memory_controller_fraction))))
+        controller_logits = self.controller_router(x).squeeze(-1)
+        controller_probs = torch.sigmoid(controller_logits)
+        top_indices = torch.topk(controller_probs, k=selected_tokens, dim=1).indices
+        hard_mask = torch.zeros_like(controller_probs)
+        hard_mask.scatter_(1, top_indices, 1.0)
+        controller_mask = (hard_mask - controller_probs).detach() + controller_probs
+        controller_entropy = -(
+            controller_probs.clamp_min(1e-9).log() * controller_probs
+            + (1.0 - controller_probs).clamp_min(1e-9).log() * (1.0 - controller_probs)
+        ).mean()
+        return controller_mask.unsqueeze(-1), controller_entropy.detach()
+
     def forward(self, x, return_metrics=False):
         local_slots, local_count = self._build_memory_slots(x)
         persistent_slots = self._get_persistent_slots(x.size(0))
         q = self.query(x)
+        controller_mask, controller_entropy = self._compute_controller_mask(x)
         local_retrieved, local_topk_indices, local_topk_weights, _, local_topk = self._retrieve_from_slots(q, local_slots)
 
         if persistent_slots is not None:
@@ -360,6 +384,7 @@ class RetrievalMemory(nn.Module):
             output = local_retrieved
 
         output = self.dropout(self.proj(output)) * self.retrieval_weight
+        output = output * controller_mask
         self._update_persistent_memory(local_slots)
 
         if not return_metrics:
@@ -393,6 +418,9 @@ class RetrievalMemory(nn.Module):
 
         metrics = {
             'memory/active_fraction': torch.tensor(float(self.memory_topk) / float(total_slots), device=x.device),
+            'memory/controller_enabled': torch.tensor(1.0 if self.use_memory_controller else 0.0, device=x.device),
+            'memory/controller_fraction': controller_mask.mean().detach(),
+            'memory/controller_entropy': controller_entropy,
             'memory/slot_utilization': (total_slot_hits > 0).float().mean().detach(),
             'memory/local_slot_utilization': (local_slot_hits > 0).float().mean().detach(),
             'memory/retrieval_entropy': retrieval_entropy.mean().detach(),
@@ -465,6 +493,8 @@ class GPTConfig:
     memory_retrieval_weight: float = 1.0
     use_persistent_memory: bool = False
     persistent_memory_momentum: float = 0.95
+    use_memory_controller: bool = False
+    memory_controller_fraction: float = 1.0
     ffn_mode: str = 'dense'
     num_experts: int = 1
     experts_topk: int = 1

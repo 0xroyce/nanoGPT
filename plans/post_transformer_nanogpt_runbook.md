@@ -30,6 +30,7 @@ The current `nanoGPT` fork includes:
 - sparse FFN / MoE via `ffn_mode='moe'`
 - retrieval-first memory via `use_retrieval_memory=True`
 - optional persistent-memory banking via `use_persistent_memory=True`
+- optional memory-controller routing via `use_memory_controller=True`
 - optional experiment metric logging in [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
 
 
@@ -281,7 +282,14 @@ Persistent-memory note:
 - the codebase now supports `use_persistent_memory=True`
 - this adds an EMA-updated memory bank that persists across training steps
 - evaluation resets memory explicitly before loss estimation
-- this is the next retrieval extension to benchmark, not the current best validated default
+- both persistent variants tested so far underperformed retrieval-only
+- they should be treated as failed prototypes, not current best candidates
+
+Controller-routing note:
+
+- the codebase now supports `use_memory_controller=True`
+- this adds an explicit token-level routing layer for retrieval access
+- it is the next preferred extension because it separates memory access from general computation more cleanly
 
 ### Sample from a trained checkpoint
 
@@ -381,6 +389,19 @@ Recommended next benchmark:
 
 ```bash
 python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --use_persistent_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --persistent_memory_momentum=0.95 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-persistent-2k | tee owt_memory_s32_k4_persistent_2k.log
+```
+
+Observed result:
+
+- both persistent-memory variants underperformed badly relative to retrieval-only
+- do not continue spending GPU time on those versions
+
+### Memory-controller benchmark
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --use_memory_controller=True --memory_controller_fraction=0.5 --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-controller-2k | tee owt_memory_s32_k4_controller_2k.log
 ```
 
 Full repo-style GPT-2 reproduction config:

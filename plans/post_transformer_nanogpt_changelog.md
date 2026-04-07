@@ -29,6 +29,9 @@ Status:
 - retrieval-weight ablation completed
 - openwebtext retrieval transfer validated
 - persistent-memory prototype added
+- persistent-memory prototype benchmarked and rejected in current form
+- routed persistent-memory prototype benchmarked and rejected in current form
+- explicit memory-controller routing started
 
 
 ## Plan Updates
@@ -73,6 +76,8 @@ New config fields added:
 - `memory_retrieval_weight`
 - `use_persistent_memory`
 - `persistent_memory_momentum`
+- `use_memory_controller`
+- `memory_controller_fraction`
 - `ffn_mode`
 - `num_experts`
 - `experts_topk`
@@ -213,6 +218,28 @@ Current persistent-memory metrics exposed:
 - `memory/persistent_valid`
 
 
+### 7. Memory-controller routing prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `use_memory_controller`
+- added `memory_controller_fraction`
+- added an explicit token-level controller that selects which tokens are allowed to use retrieval
+- the controller uses hard top-k token selection with a straight-through gradient approximation
+- non-selected tokens skip the retrieval contribution entirely
+
+Current controller metrics exposed:
+
+- `memory/controller_fraction`
+- `memory/controller_entropy`
+- `memory/controller_enabled`
+
+
 ## Phase 3 Benchmark Result
 
 Dataset used:
@@ -319,6 +346,32 @@ Interpretation:
 - the winning `32/4` retrieval setting transferred strongly to `openwebtext`
 - retrieval became sparse and highly selective on a real dataset as training progressed
 - retrieval is now the main validated architectural branch in this repo
+
+
+## Persistent-Memory Failure Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval-only with `memory_slots=32, memory_topk=4`
+- persistent-memory prototype
+- routed persistent-memory prototype
+
+Observed result:
+
+- retrieval-only reached about `2.7048` validation loss at step `2000`
+- the first persistent-memory prototype reached about `4.5757` validation loss at step `2000`
+- the routed persistent-memory prototype improved slightly to about `4.3294` but remained far worse than retrieval-only
+
+Interpretation:
+
+- naive persistence degraded the selective retrieval behavior that drove the win
+- routed persistence was directionally better but still not competitive
+- simple persistent banks should not be treated as the right path in their current form
+- the better next step is explicit controller routing over memory access
 
 
 ## Phase 1 Benchmark Result
@@ -436,5 +489,5 @@ Decision:
 Next implementation target:
 
 1. keep `memory_slots=32, memory_topk=4` as the retrieval baseline
-2. benchmark the new persistent-memory option against retrieval-only
-3. continue pushing toward a more external memory design
+2. benchmark explicit memory-controller routing against retrieval-only
+3. only after that revisit more external memory designs

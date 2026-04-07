@@ -158,6 +158,8 @@ Suggested config additions:
 - `memory_retrieval_weight`
 - `use_persistent_memory`
 - `persistent_memory_momentum`
+- `use_memory_controller`
+- `memory_controller_fraction`
 - `use_recurrent_state`
 - `state_dim`
 - `ffn_mode`
@@ -374,6 +376,12 @@ Persistent-memory prototype:
 - evaluation resets the bank explicitly to avoid split leakage
 - this is the first bridge from sequence-local retrieval toward more external memory semantics
 
+Observed failure:
+
+- both the naive persistent-memory bank and a first routed persistent-memory variant underperformed badly relative to retrieval-only
+- they increased retrieval entropy and weakened the sharp selective behavior that made retrieval successful
+- this means simple persistence is not enough; memory source separation needs a better controller
+
 Interpretation:
 
 - retrieval-style sequence memory is the current leading direction
@@ -409,6 +417,8 @@ Phase 3 decision:
 - deprioritize retrieval-plus-MoE because the first combination run underperformed badly
 - keep `memory_retrieval_weight=1.0` as the current default
 - move next toward persistent / more external memory instead of more MoE work
+- but do not keep iterating naive persistent banks
+- the next design step should introduce an explicit controller that routes when tokens access memory versus relying on blended memory mechanisms
 
 Longer-term direction after the first prototype:
 
