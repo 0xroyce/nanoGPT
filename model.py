@@ -266,6 +266,10 @@ class RetrievalMemory(nn.Module):
         self.persistent_memory_momentum = config.persistent_memory_momentum
         self.use_memory_controller = config.use_memory_controller
         self.memory_controller_fraction = config.memory_controller_fraction
+        self.use_external_memory = config.use_external_memory
+        self.external_memory_slots = config.external_memory_slots
+        self.external_memory_writes = config.external_memory_writes
+        self.external_memory_weight = config.external_memory_weight
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
@@ -276,6 +280,14 @@ class RetrievalMemory(nn.Module):
         if self.use_persistent_memory:
             self.register_buffer("persistent_memory", torch.zeros(config.memory_slots, config.n_embd))
             self.register_buffer("persistent_memory_valid", torch.tensor(False, dtype=torch.bool))
+        if self.use_external_memory:
+            if self.external_memory_slots <= 0:
+                raise ValueError("external_memory_slots must be > 0 when use_external_memory=True")
+            if self.external_memory_writes <= 0:
+                raise ValueError("external_memory_writes must be > 0 when use_external_memory=True")
+            self.register_buffer("external_memory", torch.zeros(self.external_memory_slots, config.n_embd))
+            self.register_buffer("external_memory_valid", torch.zeros(self.external_memory_slots, dtype=torch.bool))
+            self.register_buffer("external_memory_ptr", torch.tensor(0, dtype=torch.long))
 
     def _build_memory_slots(self, x):
         # Pool the current sequence into a small number of slots so retrieval stays explicit
@@ -288,6 +300,15 @@ class RetrievalMemory(nn.Module):
         if not self.use_persistent_memory or not bool(self.persistent_memory_valid.item()):
             return None
         return self.persistent_memory.unsqueeze(0).expand(batch_size, -1, -1)
+
+    def _get_external_slots(self, batch_size):
+        if not self.use_external_memory:
+            return None
+        valid_indices = torch.nonzero(self.external_memory_valid, as_tuple=False).squeeze(-1)
+        if valid_indices.numel() == 0:
+            return None
+        slots = self.external_memory.index_select(0, valid_indices)
+        return slots.unsqueeze(0).expand(batch_size, -1, -1)
 
     @torch.no_grad()
     def _update_persistent_memory(self, local_slots):
@@ -313,11 +334,36 @@ class RetrievalMemory(nn.Module):
         )
 
     @torch.no_grad()
+    def _update_external_memory(self, local_slots):
+        if not self.use_external_memory or not self.training:
+            return
+
+        pooled_slots = local_slots.detach().mean(dim=0)
+        write_count = min(self.external_memory_writes, pooled_slots.size(0), self.external_memory_slots)
+        if write_count <= 0:
+            return
+
+        slot_scores = pooled_slots.norm(dim=-1)
+        write_indices = torch.topk(slot_scores, k=write_count, dim=0).indices
+        selected_slots = pooled_slots.index_select(0, write_indices)
+
+        start = int(self.external_memory_ptr.item())
+        target_indices = (torch.arange(write_count, device=selected_slots.device) + start) % self.external_memory_slots
+        self.external_memory.index_copy_(0, target_indices, selected_slots)
+        self.external_memory_valid.index_fill_(0, target_indices, True)
+        self.external_memory_ptr.fill_(int((start + write_count) % self.external_memory_slots))
+
+    @torch.no_grad()
     def reset_memory(self):
         if not self.use_persistent_memory:
-            return
-        self.persistent_memory.zero_()
-        self.persistent_memory_valid.fill_(False)
+            pass
+        else:
+            self.persistent_memory.zero_()
+            self.persistent_memory_valid.fill_(False)
+        if self.use_external_memory:
+            self.external_memory.zero_()
+            self.external_memory_valid.fill_(False)
+            self.external_memory_ptr.zero_()
 
     def _retrieve_from_slots(self, q, memory_slots):
         slot_count = memory_slots.size(1)
@@ -358,6 +404,7 @@ class RetrievalMemory(nn.Module):
     def forward(self, x, return_metrics=False, return_aux_losses=False):
         local_slots, local_count = self._build_memory_slots(x)
         persistent_slots = self._get_persistent_slots(x.size(0))
+        external_slots = self._get_external_slots(x.size(0))
         q = self.query(x)
         controller_mask, controller_entropy = self._compute_controller_mask(x)
         local_retrieved, local_topk_indices, local_topk_weights, _, local_topk = self._retrieve_from_slots(q, local_slots)
@@ -383,10 +430,20 @@ class RetrievalMemory(nn.Module):
             persistent_source_weight = torch.zeros_like(x[..., :1])
             output = local_retrieved
 
+        if external_slots is not None:
+            external_retrieved, external_topk_indices, external_topk_weights, external_count, external_topk = self._retrieve_from_slots(q, external_slots)
+            output = output + external_retrieved * self.external_memory_weight
+        else:
+            external_topk_indices = None
+            external_topk_weights = None
+            external_count = 0
+            external_topk = 0
+
         retrieved_context = output
         output = self.dropout(self.proj(output)) * self.retrieval_weight
         output = output * controller_mask
         self._update_persistent_memory(local_slots)
+        self._update_external_memory(local_slots)
 
         if not return_metrics:
             return output
@@ -406,15 +463,28 @@ class RetrievalMemory(nn.Module):
             )
         else:
             persistent_slot_hits = torch.zeros(x.size(0), 0, device=x.device, dtype=x.dtype)
+        if external_count > 0:
+            external_slot_hits = torch.zeros(x.size(0), external_count, device=x.device, dtype=x.dtype)
+            external_slot_hits.scatter_add_(
+                1,
+                external_topk_indices.reshape(x.size(0), -1),
+                torch.ones_like(external_topk_indices, dtype=x.dtype).reshape(x.size(0), -1),
+            )
+        else:
+            external_slot_hits = torch.zeros(x.size(0), 0, device=x.device, dtype=x.dtype)
 
-        total_slots = local_count + persistent_count
-        total_slot_hits = torch.cat((local_slot_hits, persistent_slot_hits), dim=1) if persistent_count > 0 else local_slot_hits
+        total_slots = local_count + persistent_count + external_count
+        total_slot_hits = torch.cat((local_slot_hits, persistent_slot_hits, external_slot_hits), dim=1)
         retrieval_entropy = (
             local_source_weight.squeeze(-1) * -(local_topk_weights * local_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
         )
         if persistent_count > 0:
             retrieval_entropy = retrieval_entropy + (
                 persistent_source_weight.squeeze(-1) * -(persistent_topk_weights * persistent_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
+            )
+        if external_count > 0:
+            retrieval_entropy = retrieval_entropy + (
+                -(external_topk_weights * external_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
             )
         retrieval_entropy_mean = retrieval_entropy.mean()
 
@@ -437,11 +507,20 @@ class RetrievalMemory(nn.Module):
                 1.0 if (self.use_persistent_memory and bool(self.persistent_memory_valid.item())) else 0.0,
                 device=x.device,
             ),
+            'memory/external_enabled': torch.tensor(1.0 if self.use_external_memory else 0.0, device=x.device),
+            'memory/external_slots': torch.tensor(float(external_count), device=x.device),
+            'memory/external_weight': torch.tensor(float(self.external_memory_weight), device=x.device),
         }
         if persistent_count > 0:
             metrics['memory/persistent_slot_utilization'] = (persistent_slot_hits > 0).float().mean().detach()
         else:
             metrics['memory/persistent_slot_utilization'] = torch.tensor(0.0, device=x.device)
+        if external_count > 0:
+            metrics['memory/external_slot_utilization'] = (external_slot_hits > 0).float().mean().detach()
+            metrics['memory/external_valid_fraction'] = self.external_memory_valid.float().mean().detach()
+        else:
+            metrics['memory/external_slot_utilization'] = torch.tensor(0.0, device=x.device)
+            metrics['memory/external_valid_fraction'] = torch.tensor(0.0, device=x.device)
 
         aux_losses = {}
         if return_aux_losses:
@@ -511,6 +590,10 @@ class GPTConfig:
     persistent_memory_momentum: float = 0.95
     use_memory_controller: bool = False
     memory_controller_fraction: float = 1.0
+    use_external_memory: bool = False
+    external_memory_slots: int = 0
+    external_memory_writes: int = 0
+    external_memory_weight: float = 0.0
     use_multiscale_optim: bool = False
     retrieval_lr_scale: float = 1.0
     ffn_mode: str = 'dense'

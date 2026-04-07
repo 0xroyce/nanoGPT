@@ -448,6 +448,19 @@ Entropy-only note:
 - `retrieval_entropy_loss:0.01` made retrieval sharper but did not improve validation loss
 - use retrieval-consistency loss as the next richer objective instead
 
+Consistency-loss note:
+
+- `retrieval_consistency_loss:0.05` regressed validation loss back to about the retrieval-only baseline
+- this objective should not be the default next run either
+
+### External-memory benchmark
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --use_external_memory=True --external_memory_slots=128 --external_memory_writes=4 --external_memory_weight=0.25 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-external-2k | tee owt_memory_s32_k4_multiscale_x2_external_2k.log
+```
+
 Full repo-style GPT-2 reproduction config:
 
 ```bash

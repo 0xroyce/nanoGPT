@@ -37,6 +37,8 @@ Status:
 - multi-objective retrieval training started
 - entropy-only retrieval auxiliary loss benchmarked and not promoted
 - retrieval-consistency auxiliary loss started
+- retrieval-consistency auxiliary loss benchmarked and rejected in current form
+- explicit external-memory bank prototype started
 
 
 ## Plan Updates
@@ -487,6 +489,47 @@ Interpretation:
 - the entropy-only auxiliary loss changed retrieval behavior in the intended direction
 - sharper routing alone did not improve language-model quality
 - this branch is a useful null result, not a new default
+
+
+## Retrieval-Consistency Auxiliary-Loss Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with `retrieval_lr_scale=2.0`
+- the same run plus `retrieval_consistency_loss:0.05`
+
+Observed result:
+
+- multi-timescale `x2` reached about `2.6532` validation loss at step `2000`
+- adding consistency aux loss regressed to about `2.7048` at step `2000`
+- the auxiliary term stayed materially active at about `0.03`
+
+Interpretation:
+
+- forcing retrieved content to mimic token representations hurt language-model quality
+- this objective was more direct than entropy minimization, but still not aligned with the main goal
+- the best branch remains retrieval plus multi-timescale learning without auxiliary loss
+
+
+## External-Memory Prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `use_external_memory`
+- added `external_memory_slots`
+- added `external_memory_writes`
+- added `external_memory_weight`
+- added an explicit external memory bank with separate write and read paths
+- writes now occur through a simple salient-slot selection and ring-buffer overwrite instead of EMA blending
 
 
 ## Phase 1 Benchmark Result

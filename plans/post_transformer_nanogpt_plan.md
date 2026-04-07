@@ -557,6 +557,30 @@ Phase 6 decision:
 - keep `use_multiscale_optim=True` with `retrieval_lr_scale=2.0` as the default for the main branch
 - move next to richer training objectives on top of this stronger baseline
 - do not keep pushing entropy-only retrieval sharpening as the main objective direction
+- retrieval-consistency loss also failed to improve quality, so auxiliary-loss work should pause again
+
+
+## Phase 6.5 - External Memory Interface
+
+Hypothesis:
+
+- a cleaner memory system needs explicit read and write interfaces, not a blended bank inside the same retrieval pathway
+
+Current status:
+
+- now starting
+
+First implementation:
+
+- keep the winning local retrieval branch intact
+- add a separate external bank with explicit writes from salient local slots
+- avoid EMA blending and avoid token-level source routing
+
+Why this next:
+
+- it stays aligned with the original goal of separating memory from dense computation
+- it is a stricter interface than the failed persistent-memory designs
+- it tests externalization without changing the winning local retrieval path too aggressively
 
 
 ## Phase 6.5 - Local Learning Signals
