@@ -628,6 +628,50 @@ What changed:
   - `memory/external_utility_margin`
 
 
+## External-Gate Utility Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- gated two-stage external-memory prototype
+- the same prototype plus `external_gate_utility_loss:0.02`
+
+Observed result:
+
+- the gated external-memory prototype reached about `2.7008` validation loss at step `2000`
+- adding external-gate utility supervision regressed slightly to about `2.7134`
+- external gate entropy improved modestly from about `0.693` to about `0.662`
+- external utility margin remained slightly negative
+
+Interpretation:
+
+- the gate can be nudged, but the supervision still does not create a useful external-memory policy
+- the bigger issue now appears to be the data protocol, not just the gate objective
+- external memory is being asked to learn on random unrelated chunks, which is structurally hostile to the goal
+
+
+## Streaming Memory Harness
+
+Updated:
+
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `batching_mode` with `random` and `stream` options
+- added a contiguous streaming batcher for memory experiments
+- evaluation can now measure memory-enabled models on sequential chunk streams instead of only random isolated chunks
+
+Why this matters:
+
+- random chunk sampling is fine for dense baseline language modeling
+- it is a poor fit for persistent or external memory, because memory gets filled with unrelated contexts and then reset at validation time
+- this harness change is the first step toward evaluating external memory on a task setup where it can plausibly help
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

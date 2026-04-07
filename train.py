@@ -82,6 +82,7 @@ num_experts = 1
 experts_topk = 1
 use_aux_losses = False
 aux_loss_weights = ''
+batching_mode = 'random'
 log_experiment_metrics = False
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
@@ -144,6 +145,60 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 data_dir = os.path.join('data', dataset)
 
 
+class StreamingBatcher:
+
+    def __init__(self, data_path, batch_size, block_size, device, device_type, stream_offset=0):
+        self.data = np.memmap(data_path, dtype=np.uint16, mode='r')
+        self.batch_size = batch_size
+        self.block_size = block_size
+        self.device = device
+        self.device_type = device_type
+        self.max_start = len(self.data) - (block_size + 1)
+        if self.max_start <= 0:
+            raise ValueError(f"dataset at {data_path} is too small for block_size={block_size}")
+        self.stream_offset = stream_offset % (self.max_start + 1)
+        self.positions = None
+        self.reset(randomize=False)
+
+    def reset(self, randomize):
+        if randomize:
+            self.positions = np.random.randint(0, self.max_start + 1, size=self.batch_size, dtype=np.int64)
+        else:
+            stride = max(1, (self.max_start + 1) // self.batch_size)
+            self.positions = (np.arange(self.batch_size, dtype=np.int64) * stride + self.stream_offset) % (self.max_start + 1)
+
+    def next_batch(self):
+        starts = self.positions.copy()
+        x = torch.stack([torch.from_numpy((self.data[i:i+self.block_size]).astype(np.int64)) for i in starts])
+        y = torch.stack([torch.from_numpy((self.data[i+1:i+1+self.block_size]).astype(np.int64)) for i in starts])
+        self.positions = self.positions + self.block_size
+        wrapped = self.positions > self.max_start
+        self.positions[wrapped] = self.stream_offset
+        if self.device_type == 'cuda':
+            x, y = x.pin_memory().to(self.device, non_blocking=True), y.pin_memory().to(self.device, non_blocking=True)
+        else:
+            x, y = x.to(self.device), y.to(self.device)
+        return x, y
+
+
+def build_stream_batcher(split):
+    data_path = os.path.join(data_dir, f'{split}.bin')
+    split_offset = seed_offset * batch_size * block_size
+    if split == 'val':
+        split_offset += block_size // 2
+    return StreamingBatcher(
+        data_path=data_path,
+        batch_size=batch_size,
+        block_size=block_size,
+        device=device,
+        device_type=device_type,
+        stream_offset=split_offset,
+    )
+
+
+stream_batchers = None
+
+
 def unpack_model_output(model_output):
     # Keep the original tuple contract working while making room for richer experiment outputs.
     if isinstance(model_output, tuple):
@@ -173,6 +228,15 @@ def should_return_info():
 
 
 def get_batch(split):
+    global stream_batchers
+    if batching_mode == 'stream':
+        if stream_batchers is None:
+            stream_batchers = {
+                'train': build_stream_batcher('train'),
+                'val': build_stream_batcher('val'),
+            }
+        return stream_batchers[split].next_batch()
+
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == 'train':
@@ -319,6 +383,8 @@ def estimate_loss():
     for split in ['train', 'val']:
         if hasattr(raw_model, 'reset_memory'):
             raw_model.reset_memory()
+        if batching_mode == 'stream':
+            stream_batchers[split].reset(randomize=False)
         losses = torch.zeros(eval_iters)
         metric_sums = {}
         for k in range(eval_iters):
@@ -361,6 +427,9 @@ if wandb_log and master_process:
 X, Y = get_batch('train') # fetch the very first batch
 if hasattr(raw_model := (model.module if ddp else model), 'reset_memory'):
     raw_model.reset_memory()
+if batching_mode == 'stream':
+    stream_batchers['train'].reset(randomize=True)
+    X, Y = get_batch('train')
 t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 running_mfu = -1.0

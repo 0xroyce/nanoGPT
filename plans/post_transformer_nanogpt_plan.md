@@ -611,6 +611,18 @@ Next decision:
 - stop tuning the external gate learning rate in isolation
 - add an explicit external-gate utility target before changing memory size or write policy again
 
+Deeper blocker identified:
+
+- `openwebtext` training currently samples random independent chunks
+- evaluation resets memory before each sweep and then also samples random chunks
+- this means external memory is being trained on mixed unrelated contexts and cannot show its intended benefit cleanly at validation time
+
+Revised next step:
+
+- keep the current best retrieval architecture fixed
+- add a streaming contiguous batch mode for memory experiments
+- only then re-evaluate external memory, because the current random-chunk protocol is structurally hostile to persistent or external memory
+
 
 ## Phase 6.5 - Local Learning Signals
 
