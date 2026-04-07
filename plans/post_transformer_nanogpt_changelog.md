@@ -33,6 +33,8 @@ Status:
 - routed persistent-memory prototype benchmarked and rejected in current form
 - explicit memory-controller routing benchmarked and rejected in current form
 - multi-timescale learning started
+- multi-timescale retrieval benchmark validated and promoted
+- multi-objective retrieval training started
 
 
 ## Plan Updates
@@ -256,6 +258,21 @@ What changed:
 - kept the winning retrieval-only architecture fixed while testing a different learning timescale for memory
 
 
+### 9. Multi-objective retrieval prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- activated the existing auxiliary-loss config path
+- added parsing for `aux_loss_weights` in `name:value` format
+- added a first retrieval-specific auxiliary objective: `retrieval_entropy_loss`
+- auxiliary losses are now combined into the returned scalar loss when `use_aux_losses=True`
+
+
 ## Phase 3 Benchmark Result
 
 Dataset used:
@@ -415,6 +432,33 @@ Interpretation:
 - token-level gating removed too much useful retrieval access
 - the controller made retrieval less selective and less utilized
 - retrieval-only remains the clear main branch
+
+
+## Multi-Timescale Retrieval Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval-only with `memory_slots=32, memory_topk=4, memory_retrieval_weight=1.0`
+- retrieval plus multi-timescale optimizer groups with `retrieval_lr_scale=2.0`
+- retrieval plus multi-timescale optimizer groups with `retrieval_lr_scale=3.0`
+
+Observed result:
+
+- retrieval-only reached about `2.7048` validation loss at step `2000`
+- multi-timescale `x2` improved to about `2.6532` at step `2000`
+- multi-timescale `x3` was effectively tied with `x2` at about `2.6532`
+- retrieval-only reached about `0.8092` validation loss at step `5000`
+- multi-timescale `x2` improved that to about `0.7823` at step `5000`
+
+Interpretation:
+
+- multi-timescale learning improved the winning retrieval branch without breaking its retrieval dynamics
+- `retrieval_lr_scale=2.0` is the current safest best default
+- tiny scale sweeps beyond that should be lower priority than moving to richer objectives
 
 
 ## Phase 1 Benchmark Result

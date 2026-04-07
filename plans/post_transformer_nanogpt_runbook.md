@@ -420,6 +420,29 @@ Recommended next benchmark:
 python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-2k | tee owt_memory_s32_k4_multiscale_x2_2k.log
 ```
 
+Observed result:
+
+- multi-timescale `x2` improved the winning retrieval branch from about `2.7048` to about `2.6532` at `2000` steps
+- on the longer `5000` step run, multi-timescale `x2` improved validation loss from about `0.8092` to about `0.7823`
+- `retrieval_lr_scale=3.0` was effectively tied with `2.0`
+
+Current best validated setting:
+
+- `use_retrieval_memory=True`
+- `memory_slots=32`
+- `memory_topk=4`
+- `memory_retrieval_weight=1.0`
+- `use_multiscale_optim=True`
+- `retrieval_lr_scale=2.0`
+
+### Multi-objective retrieval benchmark
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --use_aux_losses=True --aux_loss_weights=retrieval_entropy_loss:0.01 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-aux-2k | tee owt_memory_s32_k4_multiscale_x2_aux_2k.log
+```
+
 Full repo-style GPT-2 reproduction config:
 
 ```bash

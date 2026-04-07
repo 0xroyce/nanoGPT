@@ -162,6 +162,10 @@ def format_named_scalars(named_values):
     return ", ".join(formatted)
 
 
+def should_return_info():
+    return log_experiment_metrics or use_aux_losses
+
+
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
@@ -307,7 +311,7 @@ def estimate_loss():
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                model_output = model(X, Y, return_info=log_experiment_metrics)
+                model_output = model(X, Y, return_info=should_return_info())
                 logits, loss, _, metrics = unpack_model_output(model_output)
             losses[k] = loss.item()
             for name, value in metrics.items():
@@ -405,7 +409,7 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            model_output = model(X, Y, return_info=log_experiment_metrics)
+            model_output = model(X, Y, return_info=should_return_info())
             logits, loss, loss_dict, metrics = unpack_model_output(model_output)
             last_loss_dict = loss_dict
             last_metrics = metrics

@@ -31,6 +31,7 @@ How this affects the plan:
 - local learning signals are tracked as a research axis, but not required in the first runnable `nanoGPT` milestones
 - multi-timescale learning should stay in the roadmap even if the first implementation is optimizer-level only
 - naive persistent banks and simple token-level gating are not the current path to the memory/computation split we actually want
+- the current best validated branch is retrieval-first memory plus multi-timescale optimization
 
 
 ## North Star
@@ -429,6 +430,11 @@ Phase 3 decision:
 - do not keep iterating naive persistent banks or simple token-level controllers
 - keep retrieval-only `32/4` as the active baseline for the next branch
 
+Updated status:
+
+- retrieval plus multi-timescale optimization now slightly outperforms retrieval-only on `openwebtext`
+- this is the new main branch to build on
+
 Longer-term direction after the first prototype:
 
 - move from retrieval as augmentation toward retrieval as the default memory pathway
@@ -540,6 +546,16 @@ Deliverable:
 Success criteria:
 
 - measurable efficiency gain or stability benefit
+
+Observed result so far:
+
+- `retrieval_lr_scale=2.0` improved the winning retrieval setup on `openwebtext`
+- `retrieval_lr_scale=3.0` was effectively tied with `2.0`
+
+Phase 6 decision:
+
+- keep `use_multiscale_optim=True` with `retrieval_lr_scale=2.0` as the default for the main branch
+- move next to richer training objectives on top of this stronger baseline
 
 
 ## Phase 6.5 - Local Learning Signals

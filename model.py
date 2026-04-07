@@ -355,7 +355,7 @@ class RetrievalMemory(nn.Module):
         ).mean()
         return controller_mask.unsqueeze(-1), controller_entropy.detach()
 
-    def forward(self, x, return_metrics=False):
+    def forward(self, x, return_metrics=False, return_aux_losses=False):
         local_slots, local_count = self._build_memory_slots(x)
         persistent_slots = self._get_persistent_slots(x.size(0))
         q = self.query(x)
@@ -415,6 +415,7 @@ class RetrievalMemory(nn.Module):
             retrieval_entropy = retrieval_entropy + (
                 persistent_source_weight.squeeze(-1) * -(persistent_topk_weights * persistent_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
             )
+        retrieval_entropy_mean = retrieval_entropy.mean()
 
         metrics = {
             'memory/active_fraction': torch.tensor(float(self.memory_topk) / float(total_slots), device=x.device),
@@ -423,7 +424,7 @@ class RetrievalMemory(nn.Module):
             'memory/controller_entropy': controller_entropy,
             'memory/slot_utilization': (total_slot_hits > 0).float().mean().detach(),
             'memory/local_slot_utilization': (local_slot_hits > 0).float().mean().detach(),
-            'memory/retrieval_entropy': retrieval_entropy.mean().detach(),
+            'memory/retrieval_entropy': retrieval_entropy_mean.detach(),
             'memory/source_entropy': source_entropy.detach(),
             'memory/slots': torch.tensor(float(total_slots), device=x.device),
             'memory/topk': torch.tensor(float(self.memory_topk), device=x.device),
@@ -440,7 +441,14 @@ class RetrievalMemory(nn.Module):
             metrics['memory/persistent_slot_utilization'] = (persistent_slot_hits > 0).float().mean().detach()
         else:
             metrics['memory/persistent_slot_utilization'] = torch.tensor(0.0, device=x.device)
-        return output, metrics
+
+        aux_losses = {}
+        if return_aux_losses:
+            # Encourage sharper top-k memory selection as the first minimal
+            # non-token objective on the winning retrieval-first branch.
+            aux_losses['retrieval_entropy_loss'] = retrieval_entropy_mean
+
+        return output, metrics, aux_losses
 
 
 def build_ffn(config):
@@ -524,6 +532,25 @@ def _merge_metric_lists(metrics_history):
         averaged[name] = torch.stack(tensor_values).mean()
     return averaged
 
+
+def _parse_aux_loss_weights(aux_loss_weights):
+    if not aux_loss_weights:
+        return {}
+
+    parsed = {}
+    for item in aux_loss_weights.split(','):
+        item = item.strip()
+        if not item:
+            continue
+        if ':' not in item:
+            raise ValueError(
+                "aux_loss_weights entries must use name:value format, "
+                f"got {item!r}"
+            )
+        name, weight = item.split(':', 1)
+        parsed[name.strip()] = float(weight.strip())
+    return parsed
+
 class GPT(nn.Module):
 
     def __init__(self, config):
@@ -540,6 +567,7 @@ class GPT(nn.Module):
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
         self.retrieval_memory = RetrievalMemory(config) if config.use_retrieval_memory else None
+        self.aux_loss_weights = _parse_aux_loss_weights(config.aux_loss_weights)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
@@ -588,10 +616,15 @@ class GPT(nn.Module):
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
         memory_metrics = {}
+        memory_loss_terms = {}
         if self.retrieval_memory is not None:
-            memory_out = self.retrieval_memory(x, return_metrics=return_info)
+            memory_out = self.retrieval_memory(
+                x,
+                return_metrics=return_info,
+                return_aux_losses=return_info and self.config.use_aux_losses,
+            )
             if return_info:
-                memory_out, memory_metrics = memory_out
+                memory_out, memory_metrics, memory_loss_terms = memory_out
             x = x + memory_out
         block_metrics = []
         for block in self.transformer.h:
@@ -617,6 +650,16 @@ class GPT(nn.Module):
         loss_dict = {}
         if loss is not None:
             loss_dict['lm_loss'] = loss
+            if self.config.use_aux_losses and memory_loss_terms:
+                aux_loss_total = torch.zeros((), device=loss.device, dtype=loss.dtype)
+                for name, aux_loss in memory_loss_terms.items():
+                    loss_dict[name] = aux_loss
+                    aux_weight = self.aux_loss_weights.get(name, 0.0)
+                    if aux_weight != 0.0:
+                        aux_loss_total = aux_loss_total + aux_loss * aux_weight
+                loss = loss + aux_loss_total
+                loss_dict['aux_loss'] = aux_loss_total
+                loss_dict['total_loss'] = loss
 
         metrics = _merge_metric_lists(block_metrics)
         metrics.update(memory_metrics)
