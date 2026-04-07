@@ -587,6 +587,47 @@ Interpretation:
 - the next step should help the external gate learn on its own timescale
 
 
+## External-Gate Timescale Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with `retrieval_lr_scale=2.0`
+- gated two-stage external-memory prototype
+- the same gated prototype plus `external_lr_scale=4.0`
+
+Observed result:
+
+- the gated external-memory prototype reached about `2.7008` validation loss at step `2000`
+- adding `external_lr_scale=4.0` produced no meaningful change and still reached about `2.7008`
+- external gate entropy stayed near `0.693`
+- local retrieval stayed healthy with entropy near `0.124`
+
+Interpretation:
+
+- the two-stage interface is the right correction and should be kept
+- simply increasing the external gate learning rate is not enough
+- the remaining blocker is the absence of a useful learning signal for the external gate itself
+
+
+## External-Gate Utility Supervision Prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+
+What changed:
+
+- added an `external_gate_utility_loss` auxiliary objective
+- the external gate now receives a detached teacher signal for which tokens seem more useful for external memory than local retrieval
+- added external-gate teacher and utility metrics for debugging:
+  - `memory/external_teacher_fraction`
+  - `memory/external_utility_margin`
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

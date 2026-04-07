@@ -600,10 +600,16 @@ Observed result so far:
 - it still did not beat the best local retrieval branch
 - the external gate remained near-maximally uncertain
 
+Follow-up result:
+
+- giving the external gate its own faster learning rate did not materially change the result
+- the architecture now looks less like the blocker than the missing learning signal
+
 Next decision:
 
 - keep the two-stage external-memory design
-- help the external gate learn with its own timescale before changing memory size or write policy again
+- stop tuning the external gate learning rate in isolation
+- add an explicit external-gate utility target before changing memory size or write policy again
 
 
 ## Phase 6.5 - Local Learning Signals

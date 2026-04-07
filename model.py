@@ -409,7 +409,9 @@ class RetrievalMemory(nn.Module):
         if external_slots is None:
             zero_mask = torch.zeros_like(x[..., :1])
             zero_entropy = torch.tensor(0.0, device=x.device)
-            return zero_mask, zero_entropy
+            zero_logits = torch.zeros_like(x[..., 0])
+            zero_probs = torch.zeros_like(x[..., 0])
+            return zero_mask, zero_entropy, zero_logits, zero_probs
 
         token_count = x.size(1)
         selected_tokens = max(1, min(token_count, int(round(token_count * self.external_memory_fraction))))
@@ -423,7 +425,7 @@ class RetrievalMemory(nn.Module):
             external_probs.clamp_min(1e-9).log() * external_probs
             + (1.0 - external_probs).clamp_min(1e-9).log() * (1.0 - external_probs)
         ).mean()
-        return external_mask.unsqueeze(-1), external_entropy.detach()
+        return external_mask.unsqueeze(-1), external_entropy.detach(), external_logits, external_probs
 
     def forward(self, x, return_metrics=False, return_aux_losses=False):
         local_slots, local_count = self._build_memory_slots(x)
@@ -454,7 +456,7 @@ class RetrievalMemory(nn.Module):
             persistent_source_weight = torch.zeros_like(x[..., :1])
             output = local_retrieved
 
-        external_mask, external_entropy = self._compute_external_mask(x, external_slots)
+        external_mask, external_entropy, external_logits, external_probs = self._compute_external_mask(x, external_slots)
         if external_slots is not None:
             external_retrieved, external_topk_indices, external_topk_weights, external_count, external_topk = self._retrieve_from_slots(q, external_slots)
             output = output + external_retrieved * external_mask * self.external_memory_weight
@@ -514,6 +516,29 @@ class RetrievalMemory(nn.Module):
                 external_mask.squeeze(-1)
                 * -(external_topk_weights * external_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
             ).mean()
+            external_alignment = F.cosine_similarity(
+                external_retrieved.detach(),
+                x.detach(),
+                dim=-1,
+                eps=1e-8,
+            )
+            local_alignment = F.cosine_similarity(
+                local_retrieved.detach(),
+                x.detach(),
+                dim=-1,
+                eps=1e-8,
+            )
+            utility_scores = external_alignment - local_alignment
+            teacher_token_count = max(1, min(x.size(1), int(round(x.size(1) * self.external_memory_fraction))))
+            teacher_indices = torch.topk(utility_scores, k=teacher_token_count, dim=1).indices
+            external_teacher_mask = torch.zeros_like(utility_scores)
+            external_teacher_mask.scatter_(1, teacher_indices, 1.0)
+            external_teacher_fraction = external_teacher_mask.mean()
+            external_utility_margin = utility_scores.mean()
+        else:
+            external_teacher_mask = torch.zeros_like(external_probs)
+            external_teacher_fraction = torch.tensor(0.0, device=x.device)
+            external_utility_margin = torch.tensor(0.0, device=x.device)
 
         metrics = {
             'memory/active_fraction': torch.tensor(float(self.memory_topk) / float(total_slots), device=x.device),
@@ -539,6 +564,8 @@ class RetrievalMemory(nn.Module):
             'memory/external_fraction': external_mask.mean().detach(),
             'memory/external_gate_entropy': external_entropy,
             'memory/external_retrieval_entropy': external_entropy_mean.detach(),
+            'memory/external_teacher_fraction': external_teacher_fraction.detach(),
+            'memory/external_utility_margin': external_utility_margin.detach(),
             'memory/external_weight': torch.tensor(float(self.external_memory_weight), device=x.device),
         }
         if persistent_count > 0:
@@ -564,6 +591,11 @@ class RetrievalMemory(nn.Module):
                 eps=1e-8,
             )
             aux_losses['retrieval_consistency_loss'] = consistency.mean()
+            if external_count > 0:
+                aux_losses['external_gate_utility_loss'] = F.binary_cross_entropy_with_logits(
+                    external_logits,
+                    external_teacher_mask,
+                )
 
         return output, metrics, aux_losses
 
