@@ -556,6 +556,7 @@ Phase 6 decision:
 
 - keep `use_multiscale_optim=True` with `retrieval_lr_scale=2.0` as the default for the main branch
 - move next to richer training objectives on top of this stronger baseline
+- do not keep pushing entropy-only retrieval sharpening as the main objective direction
 
 
 ## Phase 6.5 - Local Learning Signals

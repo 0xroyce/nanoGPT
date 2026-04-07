@@ -35,6 +35,8 @@ Status:
 - multi-timescale learning started
 - multi-timescale retrieval benchmark validated and promoted
 - multi-objective retrieval training started
+- entropy-only retrieval auxiliary loss benchmarked and not promoted
+- retrieval-consistency auxiliary loss started
 
 
 ## Plan Updates
@@ -270,6 +272,7 @@ What changed:
 - activated the existing auxiliary-loss config path
 - added parsing for `aux_loss_weights` in `name:value` format
 - added a first retrieval-specific auxiliary objective: `retrieval_entropy_loss`
+- added a retrieval-target consistency objective: `retrieval_consistency_loss`
 - auxiliary losses are now combined into the returned scalar loss when `use_aux_losses=True`
 
 
@@ -459,6 +462,31 @@ Interpretation:
 - multi-timescale learning improved the winning retrieval branch without breaking its retrieval dynamics
 - `retrieval_lr_scale=2.0` is the current safest best default
 - tiny scale sweeps beyond that should be lower priority than moving to richer objectives
+
+
+## Entropy-Only Auxiliary-Loss Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with `retrieval_lr_scale=2.0`
+- the same run plus `retrieval_entropy_loss:0.01`
+
+Observed result:
+
+- multi-timescale `x2` reached about `2.6532` validation loss at step `2000`
+- adding entropy-only aux loss reached about `2.6533` at step `2000`
+- retrieval entropy improved from about `0.1295` to about `0.0939`
+- slot utilization remained at `1.0000`
+
+Interpretation:
+
+- the entropy-only auxiliary loss changed retrieval behavior in the intended direction
+- sharper routing alone did not improve language-model quality
+- this branch is a useful null result, not a new default
 
 
 ## Phase 1 Benchmark Result

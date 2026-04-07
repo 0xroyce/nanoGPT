@@ -383,6 +383,7 @@ class RetrievalMemory(nn.Module):
             persistent_source_weight = torch.zeros_like(x[..., :1])
             output = local_retrieved
 
+        retrieved_context = output
         output = self.dropout(self.proj(output)) * self.retrieval_weight
         output = output * controller_mask
         self._update_persistent_memory(local_slots)
@@ -447,6 +448,13 @@ class RetrievalMemory(nn.Module):
             # Encourage sharper top-k memory selection as the first minimal
             # non-token objective on the winning retrieval-first branch.
             aux_losses['retrieval_entropy_loss'] = retrieval_entropy_mean
+            consistency = 1.0 - F.cosine_similarity(
+                retrieved_context,
+                x.detach(),
+                dim=-1,
+                eps=1e-8,
+            )
+            aux_losses['retrieval_consistency_loss'] = consistency.mean()
 
         return output, metrics, aux_losses
 
