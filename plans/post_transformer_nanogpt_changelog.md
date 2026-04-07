@@ -39,6 +39,8 @@ Status:
 - retrieval-consistency auxiliary loss started
 - retrieval-consistency auxiliary loss benchmarked and rejected in current form
 - explicit external-memory bank prototype started
+- shared-pool external-memory prototype benchmarked and rejected in current form
+- gated two-stage external-memory prototype started
 
 
 ## Plan Updates
@@ -528,8 +530,34 @@ What changed:
 - added `external_memory_slots`
 - added `external_memory_writes`
 - added `external_memory_weight`
+- added `external_memory_fraction`
 - added an explicit external memory bank with separate write and read paths
 - writes now occur through a simple salient-slot selection and ring-buffer overwrite instead of EMA blending
+
+
+## Shared-Pool External-Memory Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with `retrieval_lr_scale=2.0`
+- the same run plus the first explicit external-memory bank
+
+Observed result:
+
+- multi-timescale `x2` reached about `2.6532` validation loss at step `2000`
+- the first external-memory prototype regressed to about `2.7552` at step `2000`
+- retrieval entropy inflated badly to roughly `1.2-1.4`
+- local and external memory were still effectively competing inside one retrieval pool
+
+Interpretation:
+
+- the problem is not the idea of external memory itself
+- the shared-pool interface contaminated the clean local retrieval dynamics
+- external memory needs a stricter two-stage interface, not a larger mixed memory pool
 
 
 ## Phase 1 Benchmark Result

@@ -270,8 +270,10 @@ class RetrievalMemory(nn.Module):
         self.external_memory_slots = config.external_memory_slots
         self.external_memory_writes = config.external_memory_writes
         self.external_memory_weight = config.external_memory_weight
+        self.external_memory_fraction = config.external_memory_fraction
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
+        self.external_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
@@ -285,6 +287,8 @@ class RetrievalMemory(nn.Module):
                 raise ValueError("external_memory_slots must be > 0 when use_external_memory=True")
             if self.external_memory_writes <= 0:
                 raise ValueError("external_memory_writes must be > 0 when use_external_memory=True")
+            if not 0.0 < self.external_memory_fraction <= 1.0:
+                raise ValueError("external_memory_fraction must be in (0, 1] when use_external_memory=True")
             self.register_buffer("external_memory", torch.zeros(self.external_memory_slots, config.n_embd))
             self.register_buffer("external_memory_valid", torch.zeros(self.external_memory_slots, dtype=torch.bool))
             self.register_buffer("external_memory_ptr", torch.tensor(0, dtype=torch.long))
@@ -401,6 +405,26 @@ class RetrievalMemory(nn.Module):
         ).mean()
         return controller_mask.unsqueeze(-1), controller_entropy.detach()
 
+    def _compute_external_mask(self, x, external_slots):
+        if external_slots is None:
+            zero_mask = torch.zeros_like(x[..., :1])
+            zero_entropy = torch.tensor(0.0, device=x.device)
+            return zero_mask, zero_entropy
+
+        token_count = x.size(1)
+        selected_tokens = max(1, min(token_count, int(round(token_count * self.external_memory_fraction))))
+        external_logits = self.external_router(x).squeeze(-1)
+        external_probs = torch.sigmoid(external_logits)
+        top_indices = torch.topk(external_probs, k=selected_tokens, dim=1).indices
+        hard_mask = torch.zeros_like(external_probs)
+        hard_mask.scatter_(1, top_indices, 1.0)
+        external_mask = (hard_mask - external_probs).detach() + external_probs
+        external_entropy = -(
+            external_probs.clamp_min(1e-9).log() * external_probs
+            + (1.0 - external_probs).clamp_min(1e-9).log() * (1.0 - external_probs)
+        ).mean()
+        return external_mask.unsqueeze(-1), external_entropy.detach()
+
     def forward(self, x, return_metrics=False, return_aux_losses=False):
         local_slots, local_count = self._build_memory_slots(x)
         persistent_slots = self._get_persistent_slots(x.size(0))
@@ -430,9 +454,10 @@ class RetrievalMemory(nn.Module):
             persistent_source_weight = torch.zeros_like(x[..., :1])
             output = local_retrieved
 
+        external_mask, external_entropy = self._compute_external_mask(x, external_slots)
         if external_slots is not None:
             external_retrieved, external_topk_indices, external_topk_weights, external_count, external_topk = self._retrieve_from_slots(q, external_slots)
-            output = output + external_retrieved * self.external_memory_weight
+            output = output + external_retrieved * external_mask * self.external_memory_weight
         else:
             external_topk_indices = None
             external_topk_weights = None
@@ -473,8 +498,8 @@ class RetrievalMemory(nn.Module):
         else:
             external_slot_hits = torch.zeros(x.size(0), 0, device=x.device, dtype=x.dtype)
 
-        total_slots = local_count + persistent_count + external_count
-        total_slot_hits = torch.cat((local_slot_hits, persistent_slot_hits, external_slot_hits), dim=1)
+        total_slots = local_count + persistent_count
+        total_slot_hits = torch.cat((local_slot_hits, persistent_slot_hits), dim=1)
         retrieval_entropy = (
             local_source_weight.squeeze(-1) * -(local_topk_weights * local_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
         )
@@ -482,11 +507,13 @@ class RetrievalMemory(nn.Module):
             retrieval_entropy = retrieval_entropy + (
                 persistent_source_weight.squeeze(-1) * -(persistent_topk_weights * persistent_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
             )
-        if external_count > 0:
-            retrieval_entropy = retrieval_entropy + (
-                -(external_topk_weights * external_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
-            )
         retrieval_entropy_mean = retrieval_entropy.mean()
+        external_entropy_mean = torch.tensor(0.0, device=x.device)
+        if external_count > 0:
+            external_entropy_mean = (
+                external_mask.squeeze(-1)
+                * -(external_topk_weights * external_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
+            ).mean()
 
         metrics = {
             'memory/active_fraction': torch.tensor(float(self.memory_topk) / float(total_slots), device=x.device),
@@ -509,6 +536,9 @@ class RetrievalMemory(nn.Module):
             ),
             'memory/external_enabled': torch.tensor(1.0 if self.use_external_memory else 0.0, device=x.device),
             'memory/external_slots': torch.tensor(float(external_count), device=x.device),
+            'memory/external_fraction': external_mask.mean().detach(),
+            'memory/external_gate_entropy': external_entropy,
+            'memory/external_retrieval_entropy': external_entropy_mean.detach(),
             'memory/external_weight': torch.tensor(float(self.external_memory_weight), device=x.device),
         }
         if persistent_count > 0:
@@ -594,6 +624,7 @@ class GPTConfig:
     external_memory_slots: int = 0
     external_memory_writes: int = 0
     external_memory_weight: float = 0.0
+    external_memory_fraction: float = 0.25
     use_multiscale_optim: bool = False
     retrieval_lr_scale: float = 1.0
     ffn_mode: str = 'dense'

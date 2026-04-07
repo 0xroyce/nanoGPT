@@ -575,12 +575,24 @@ First implementation:
 - keep the winning local retrieval branch intact
 - add a separate external bank with explicit writes from salient local slots
 - avoid EMA blending and avoid token-level source routing
+- avoid putting local and external memory into one shared top-k competition
 
 Why this next:
 
 - it stays aligned with the original goal of separating memory from dense computation
 - it is a stricter interface than the failed persistent-memory designs
 - it tests externalization without changing the winning local retrieval path too aggressively
+
+Observed failure in the first attempt:
+
+- the first explicit external-memory bank still regressed on `openwebtext`
+- the failure came from mixing external slots into the same retrieval competition as local memory
+
+Next implementation correction:
+
+- local retrieval remains the primary path
+- external memory is now queried in a separate stage with its own gate
+- this preserves local retrieval dynamics while still allowing explicit external lookup
 
 
 ## Phase 6.5 - Local Learning Signals
