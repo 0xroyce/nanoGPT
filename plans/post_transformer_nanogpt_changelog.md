@@ -672,6 +672,25 @@ Why this matters:
 - this harness change is the first step toward evaluating external memory on a task setup where it can plausibly help
 
 
+## Stream-Eval Warmup Correction
+
+Updated:
+
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `stream_eval_warmup_iters`
+- stream-mode evaluation now warms memory on contiguous batches before measuring loss
+- after eval, stream-mode training now restarts from a fresh randomized stream instead of resuming with stale prefetched batches and reset memory
+
+Why this matters:
+
+- the first stream benchmark was scoring the model from a cold memory state
+- it also resumed training in a mismatched state after eval
+- this correction makes stream-mode results a fairer test of retrieval and external memory
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

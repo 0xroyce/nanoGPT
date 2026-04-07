@@ -517,13 +517,13 @@ Why this comes next:
 Recommended retrieval baseline under streaming batches:
 
 ```bash
-python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-stream-2k | tee owt_memory_s32_k4_multiscale_x2_stream_2k.log
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-stream-warm-2k | tee owt_memory_s32_k4_multiscale_x2_stream_warm_2k.log
 ```
 
 Then compare gated external memory under the same streaming protocol:
 
 ```bash
-python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --use_external_memory=True --external_memory_slots=128 --external_memory_writes=4 --external_memory_weight=0.25 --external_memory_fraction=0.25 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-external-gated-stream-2k | tee owt_memory_s32_k4_multiscale_x2_external_gated_stream_2k.log
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --use_external_memory=True --external_memory_slots=128 --external_memory_writes=4 --external_memory_weight=0.25 --external_memory_fraction=0.25 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-external-gated-stream-warm-2k | tee owt_memory_s32_k4_multiscale_x2_external_gated_stream_warm_2k.log
 ```
 
 What to compare:
@@ -533,6 +533,11 @@ What to compare:
 - `memory/external_fraction`
 - `memory/external_gate_entropy`
 - `memory/external_valid_fraction`
+
+Warmup note:
+
+- stream-mode eval should not score the model from an empty memory state
+- use `stream_eval_warmup_iters=16` as the first fair comparison point
 
 Full repo-style GPT-2 reproduction config:
 

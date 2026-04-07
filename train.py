@@ -83,6 +83,7 @@ experts_topk = 1
 use_aux_losses = False
 aux_loss_weights = ''
 batching_mode = 'random'
+stream_eval_warmup_iters = 16
 log_experiment_metrics = False
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
@@ -385,6 +386,10 @@ def estimate_loss():
             raw_model.reset_memory()
         if batching_mode == 'stream':
             stream_batchers[split].reset(randomize=False)
+            for _ in range(stream_eval_warmup_iters):
+                X, Y = get_batch(split)
+                with ctx:
+                    model(X, Y, return_info=False)
         losses = torch.zeros(eval_iters)
         metric_sums = {}
         for k in range(eval_iters):
@@ -402,6 +407,8 @@ def estimate_loss():
     model.train()
     if hasattr(raw_model, 'reset_memory'):
         raw_model.reset_memory()
+    if batching_mode == 'stream':
+        stream_batchers['train'].reset(randomize=True)
     return out, metric_out
 
 # learning rate decay scheduler (cosine with warmup)
@@ -445,6 +452,8 @@ while True:
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
         losses, eval_metrics = estimate_loss()
+        if batching_mode == 'stream':
+            X, Y = get_batch('train')
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
         if log_experiment_metrics:
             train_metrics_str = format_named_scalars(eval_metrics['train'])

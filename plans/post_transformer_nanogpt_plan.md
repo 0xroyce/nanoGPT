@@ -623,6 +623,12 @@ Revised next step:
 - add a streaming contiguous batch mode for memory experiments
 - only then re-evaluate external memory, because the current random-chunk protocol is structurally hostile to persistent or external memory
 
+Important harness correction:
+
+- stream-mode eval also needs memory warmup before scoring
+- training should not resume mid-stream after eval with memory reset and stale prefetched batches
+- without these fixes, stream-mode losses overstate how bad the memory model is by scoring it cold
+
 
 ## Phase 6.5 - Local Learning Signals
 
