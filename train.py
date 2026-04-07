@@ -14,6 +14,10 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 --master_addr=123.456.123
 - Run on the worker node:
 $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.456 --master_port=1234 train.py
 (If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
+
+Experiment notes and post-Transformer research modifications in this fork:
+Petr Royce
+GitHub: 0xroyce
 """
 
 import os
@@ -54,6 +58,15 @@ n_head = 12
 n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
+attention_mode = 'dense'
+attention_window = 1024
+attention_topk = 0
+ffn_mode = 'dense'
+num_experts = 1
+experts_topk = 1
+use_aux_losses = False
+aux_loss_weights = ''
+log_experiment_metrics = False
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
@@ -113,6 +126,32 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 
 # poor man's data loader
 data_dir = os.path.join('data', dataset)
+
+
+def unpack_model_output(model_output):
+    # Keep the original tuple contract working while making room for richer experiment outputs.
+    if isinstance(model_output, tuple):
+        logits, loss = model_output
+        return logits, loss, {}, {}
+
+    return (
+        model_output.logits,
+        model_output.loss,
+        getattr(model_output, 'loss_dict', {}),
+        getattr(model_output, 'metrics', {}),
+    )
+
+
+def format_named_scalars(named_values):
+    formatted = []
+    for name in sorted(named_values):
+        value = named_values[name]
+        if torch.is_tensor(value):
+            value = value.detach().float().item()
+        formatted.append(f"{name} {value:.4f}")
+    return ", ".join(formatted)
+
+
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
@@ -144,8 +183,23 @@ if os.path.exists(meta_path):
     print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # model init
-model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
+model_args = dict(
+    n_layer=n_layer,
+    n_head=n_head,
+    n_embd=n_embd,
+    block_size=block_size,
+    bias=bias,
+    vocab_size=None,
+    dropout=dropout,
+    attention_mode=attention_mode,
+    attention_window=attention_window,
+    attention_topk=attention_topk,
+    ffn_mode=ffn_mode,
+    num_experts=num_experts,
+    experts_topk=experts_topk,
+    use_aux_losses=use_aux_losses,
+    aux_loss_weights=aux_loss_weights,
+) # start with model_args from command line
 if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
@@ -162,9 +216,10 @@ elif init_from == 'resume':
     checkpoint = torch.load(ckpt_path, map_location=device)
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
-    # the rest of the attributes (e.g. dropout) can stay as desired from command line
-    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
-        model_args[k] = checkpoint_model_args[k]
+    # the rest of the attributes can stay as desired from command line when absent in old checkpoints
+    for k in list(model_args.keys()):
+        if k in checkpoint_model_args:
+            model_args[k] = checkpoint_model_args[k]
     # create the model
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
@@ -184,7 +239,7 @@ elif init_from.startswith('gpt2'):
     override_args = dict(dropout=dropout)
     model = GPT.from_pretrained(init_from, override_args)
     # read off the created config params, so we can store them into checkpoint correctly
-    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
+    for k in model_args.keys():
         model_args[k] = getattr(model.config, k)
 # crop down the model block size if desired, using model surgery
 if block_size < model.config.block_size:
@@ -215,17 +270,25 @@ if ddp:
 @torch.no_grad()
 def estimate_loss():
     out = {}
+    metric_out = {}
     model.eval()
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
+        metric_sums = {}
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                logits, loss = model(X, Y)
+                model_output = model(X, Y, return_info=log_experiment_metrics)
+                logits, loss, _, metrics = unpack_model_output(model_output)
             losses[k] = loss.item()
+            for name, value in metrics.items():
+                if torch.is_tensor(value):
+                    value = value.detach().float().item()
+                metric_sums[name] = metric_sums.get(name, 0.0) + float(value)
         out[split] = losses.mean()
+        metric_out[split] = {name: total / eval_iters for name, total in metric_sums.items()}
     model.train()
-    return out
+    return out, metric_out
 
 # learning rate decay scheduler (cosine with warmup)
 def get_lr(it):
@@ -252,6 +315,8 @@ t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
 running_mfu = -1.0
+last_loss_dict = {}
+last_metrics = {}
 while True:
 
     # determine and set the learning rate for this iteration
@@ -261,16 +326,27 @@ while True:
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
-        losses = estimate_loss()
+        losses, eval_metrics = estimate_loss()
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        if log_experiment_metrics:
+            train_metrics_str = format_named_scalars(eval_metrics['train'])
+            val_metrics_str = format_named_scalars(eval_metrics['val'])
+            if train_metrics_str:
+                print(f"step {iter_num}: train metrics {train_metrics_str}")
+            if val_metrics_str:
+                print(f"step {iter_num}: val metrics {val_metrics_str}")
         if wandb_log:
-            wandb.log({
+            wandb_payload = {
                 "iter": iter_num,
                 "train/loss": losses['train'],
                 "val/loss": losses['val'],
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
-            })
+            }
+            for split, split_metrics in eval_metrics.items():
+                for name, value in split_metrics.items():
+                    wandb_payload[f"{split}/{name}"] = value
+            wandb.log(wandb_payload)
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:
@@ -297,7 +373,10 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            logits, loss = model(X, Y)
+            model_output = model(X, Y, return_info=log_experiment_metrics)
+            logits, loss, loss_dict, metrics = unpack_model_output(model_output)
+            last_loss_dict = loss_dict
+            last_metrics = metrics
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = get_batch('train')
@@ -325,6 +404,13 @@ while True:
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+        if log_experiment_metrics:
+            loss_terms_str = format_named_scalars(last_loss_dict)
+            metrics_str = format_named_scalars(last_metrics)
+            if loss_terms_str:
+                print(f"iter {iter_num}: loss_terms {loss_terms_str}")
+            if metrics_str:
+                print(f"iter {iter_num}: metrics {metrics_str}")
     iter_num += 1
     local_iter_num += 1
 

@@ -5,11 +5,16 @@ References:
 https://github.com/openai/gpt-2/blob/master/src/model.py
 2) huggingface/transformers PyTorch implementation:
 https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
+
+Experiment notes and post-Transformer research modifications in this fork:
+Petr Royce
+GitHub: 0xroyce
 """
 
 import math
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 import torch
 import torch.nn as nn
@@ -26,6 +31,17 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
+
+@dataclass
+class GPTForwardOutput:
+    """Optional structured output for experiment-heavy training loops."""
+
+    logits: torch.Tensor
+    loss: Optional[torch.Tensor]
+    loss_dict: dict[str, torch.Tensor] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
+
+
 class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
@@ -41,6 +57,8 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
+        self.attention_mode = config.attention_mode
+        self.attention_window = config.attention_window
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -49,7 +67,71 @@ class CausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-    def forward(self, x):
+    def _get_dense_causal_mask(self, T, device):
+        if hasattr(self, 'bias'):
+            return self.bias[:, :, :T, :T].to(dtype=torch.bool)
+        return torch.tril(torch.ones(T, T, device=device, dtype=torch.bool)).view(1, 1, T, T)
+
+    def _get_local_causal_mask(self, T, device):
+        # Each token can only attend to a bounded causal neighborhood ending at itself.
+        positions = torch.arange(T, device=device)
+        relative_positions = positions.unsqueeze(1) - positions.unsqueeze(0)
+        local_mask = (relative_positions >= 0) & (relative_positions < self.attention_window)
+        return local_mask.view(1, 1, T, T)
+
+    def _forward_masked(self, q, k, v, mask):
+        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        att = att.masked_fill(~mask, float('-inf'))
+        att = F.softmax(att, dim=-1)
+        att = self.attn_dropout(att)
+        return att @ v
+
+    def _forward_dense(self, q, k, v, T):
+        # Keep dense attention as the reference path while we build out sparse variants.
+        if self.flash:
+            return torch.nn.functional.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=None,
+                dropout_p=self.dropout if self.training else 0,
+                is_causal=True,
+            )
+
+        # Manual attention fallback mirrors the original implementation for older PyTorch versions.
+        dense_mask = self._get_dense_causal_mask(T, q.device)
+        return self._forward_masked(q, k, v, dense_mask)
+
+    def _forward_local(self, q, k, v, T):
+        if self.attention_window <= 0:
+            raise ValueError("attention_window must be > 0 when attention_mode='local'")
+
+        local_mask = self._get_local_causal_mask(T, q.device)
+        return self._forward_masked(q, k, v, local_mask)
+
+    def _get_attention_metrics(self, T):
+        if self.attention_mode == 'dense':
+            active_fraction = 1.0
+            window_tokens = float(T)
+        elif self.attention_mode == 'local':
+            effective_window = min(T, self.attention_window)
+            dense_active = T * (T + 1) / 2
+            local_active = (
+                effective_window * (effective_window + 1) / 2
+                + max(T - effective_window, 0) * effective_window
+            )
+            active_fraction = local_active / dense_active
+            window_tokens = float(effective_window)
+        else:
+            active_fraction = 0.0
+            window_tokens = 0.0
+
+        return {
+            'attention/active_fraction': active_fraction,
+            'attention/window_tokens': window_tokens,
+        }
+
+    def forward(self, x, return_metrics=False):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
@@ -58,24 +140,24 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
-        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
-        if self.flash:
-            # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+        if self.attention_mode == 'dense':
+            y = self._forward_dense(q, k, v, T)
+        elif self.attention_mode == 'local':
+            y = self._forward_local(q, k, v, T)
         else:
-            # manual implementation of attention
-            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-            att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-            att = F.softmax(att, dim=-1)
-            att = self.attn_dropout(att)
-            y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+            raise NotImplementedError(f"attention_mode={self.attention_mode!r} is not implemented yet")
+
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
-        return y
+        if not return_metrics:
+            return y
 
-class MLP(nn.Module):
+        metrics = self._get_attention_metrics(T)
+        return y, metrics
+
+class DenseMLP(nn.Module):
 
     def __init__(self, config):
         super().__init__()
@@ -91,6 +173,12 @@ class MLP(nn.Module):
         x = self.dropout(x)
         return x
 
+
+def build_ffn(config):
+    if config.ffn_mode == 'dense':
+        return DenseMLP(config)
+    raise NotImplementedError(f"ffn_mode={config.ffn_mode!r} is not implemented yet")
+
 class Block(nn.Module):
 
     def __init__(self, config):
@@ -98,12 +186,22 @@ class Block(nn.Module):
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
         self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
-        self.mlp = MLP(config)
+        self.mlp = build_ffn(config)
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, return_metrics=False):
+        block_metrics = {}
+        attn_out = self.attn(self.ln_1(x), return_metrics=return_metrics)
+        if return_metrics:
+            attn_out, attn_metrics = attn_out
+            block_metrics.update(attn_metrics)
+        x = x + attn_out
         x = x + self.mlp(self.ln_2(x))
-        return x
+        if not return_metrics:
+            return x
+
+        # Dense FFNs activate the entire hidden expansion path for every token.
+        block_metrics['ffn/active_fraction'] = 1.0
+        return x, block_metrics
 
 @dataclass
 class GPTConfig:
@@ -114,6 +212,30 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    attention_mode: str = 'dense'
+    attention_window: int = 1024
+    attention_topk: int = 0
+    ffn_mode: str = 'dense'
+    num_experts: int = 1
+    experts_topk: int = 1
+    use_aux_losses: bool = False
+    aux_loss_weights: str = ''
+
+
+def _merge_metric_lists(metrics_history):
+    if not metrics_history:
+        return {}
+
+    merged = {}
+    for metrics in metrics_history:
+        for name, value in metrics.items():
+            merged.setdefault(name, []).append(value)
+
+    averaged = {}
+    for name, values in merged.items():
+        numeric_values = [float(v) for v in values]
+        averaged[name] = sum(numeric_values) / len(numeric_values)
+    return averaged
 
 class GPT(nn.Module):
 
@@ -167,7 +289,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, return_info=False):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -177,8 +299,13 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
+        block_metrics = []
         for block in self.transformer.h:
-            x = block(x)
+            if return_info:
+                x, metrics = block(x, return_metrics=True)
+                block_metrics.append(metrics)
+            else:
+                x = block(x)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
@@ -190,7 +317,17 @@ class GPT(nn.Module):
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
 
-        return logits, loss
+        if not return_info:
+            return logits, loss
+
+        loss_dict = {}
+        if loss is not None:
+            loss_dict['lm_loss'] = loss
+
+        metrics = _merge_metric_lists(block_metrics)
+        metrics['model/attention_mode_is_dense'] = 1.0 if self.config.attention_mode == 'dense' else 0.0
+        metrics['model/ffn_mode_is_dense'] = 1.0 if self.config.ffn_mode == 'dense' else 0.0
+        return GPTForwardOutput(logits=logits, loss=loss, loss_dict=loss_dict, metrics=metrics)
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
