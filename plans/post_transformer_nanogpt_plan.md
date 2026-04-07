@@ -634,6 +634,17 @@ Final eval correction:
 - eval warmup must also be allowed to write to memory buffers
 - otherwise external and persistent memory still appear inactive at evaluation time even after warmup
 
+Trusted negative result:
+
+- after fixing stream-mode eval so external memory is truly populated and measured, the gated ring-buffer external-memory design still regressed slightly versus retrieval-only
+- that design should be treated as falsified, not tuned further
+
+Fresh design direction:
+
+- use per-sequence episodic memory instead of a shared batch-level bank
+- store one compact summary per sequence step rather than top-norm local slots pooled across unrelated batch items
+- remove the failing learned external gate and query episodic memory as a separate low-bandwidth path
+
 
 ## Phase 6.5 - Local Learning Signals
 

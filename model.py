@@ -271,6 +271,10 @@ class RetrievalMemory(nn.Module):
         self.external_memory_writes = config.external_memory_writes
         self.external_memory_weight = config.external_memory_weight
         self.external_memory_fraction = config.external_memory_fraction
+        self.use_episodic_memory = config.use_episodic_memory
+        self.episodic_memory_slots = config.episodic_memory_slots
+        self.episodic_memory_topk = config.episodic_memory_topk
+        self.episodic_memory_weight = config.episodic_memory_weight
         self.memory_update_during_eval = False
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
@@ -278,6 +282,9 @@ class RetrievalMemory(nn.Module):
         self.query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.episodic_query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.episodic_key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.episodic_value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
         if self.use_persistent_memory:
@@ -293,6 +300,14 @@ class RetrievalMemory(nn.Module):
             self.register_buffer("external_memory", torch.zeros(self.external_memory_slots, config.n_embd))
             self.register_buffer("external_memory_valid", torch.zeros(self.external_memory_slots, dtype=torch.bool))
             self.register_buffer("external_memory_ptr", torch.tensor(0, dtype=torch.long))
+        if self.use_episodic_memory:
+            if self.episodic_memory_slots <= 0:
+                raise ValueError("episodic_memory_slots must be > 0 when use_episodic_memory=True")
+            if self.episodic_memory_topk <= 0:
+                raise ValueError("episodic_memory_topk must be > 0 when use_episodic_memory=True")
+            self.register_buffer("episodic_memory", torch.zeros(0, self.episodic_memory_slots, config.n_embd))
+            self.register_buffer("episodic_memory_valid", torch.zeros(0, self.episodic_memory_slots, dtype=torch.bool))
+            self.register_buffer("episodic_memory_ptr", torch.zeros(0, dtype=torch.long))
 
     def _build_memory_slots(self, x):
         # Pool the current sequence into a small number of slots so retrieval stays explicit
@@ -314,6 +329,28 @@ class RetrievalMemory(nn.Module):
             return None
         slots = self.external_memory.index_select(0, valid_indices)
         return slots.unsqueeze(0).expand(batch_size, -1, -1)
+
+    def _ensure_episodic_state(self, batch_size, device):
+        if not self.use_episodic_memory:
+            return
+        needs_resize = (
+            self.episodic_memory.ndim != 3
+            or self.episodic_memory.size(0) != batch_size
+            or self.episodic_memory.device != device
+        )
+        if not needs_resize:
+            return
+        self.episodic_memory = torch.zeros(batch_size, self.episodic_memory_slots, self.query.out_features, device=device)
+        self.episodic_memory_valid = torch.zeros(batch_size, self.episodic_memory_slots, dtype=torch.bool, device=device)
+        self.episodic_memory_ptr = torch.zeros(batch_size, dtype=torch.long, device=device)
+
+    def _get_episodic_slots(self, batch_size, device):
+        if not self.use_episodic_memory:
+            return None, None
+        self._ensure_episodic_state(batch_size, device)
+        if not bool(self.episodic_memory_valid.any().item()):
+            return None, None
+        return self.episodic_memory, self.episodic_memory_valid
 
     @torch.no_grad()
     def _update_persistent_memory(self, local_slots):
@@ -359,6 +396,20 @@ class RetrievalMemory(nn.Module):
         self.external_memory_ptr.fill_(int((start + write_count) % self.external_memory_slots))
 
     @torch.no_grad()
+    def _update_episodic_memory(self, local_slots):
+        if not self.use_episodic_memory or not (self.training or self.memory_update_during_eval):
+            return
+
+        batch_size = local_slots.size(0)
+        self._ensure_episodic_state(batch_size, local_slots.device)
+        summaries = local_slots.detach().mean(dim=1)
+        batch_indices = torch.arange(batch_size, device=summaries.device)
+        ptr = self.episodic_memory_ptr
+        self.episodic_memory[batch_indices, ptr] = summaries
+        self.episodic_memory_valid[batch_indices, ptr] = True
+        self.episodic_memory_ptr = (ptr + 1) % self.episodic_memory_slots
+
+    @torch.no_grad()
     def reset_memory(self):
         if not self.use_persistent_memory:
             pass
@@ -369,16 +420,33 @@ class RetrievalMemory(nn.Module):
             self.external_memory.zero_()
             self.external_memory_valid.fill_(False)
             self.external_memory_ptr.zero_()
+        if self.use_episodic_memory:
+            self.episodic_memory.zero_()
+            self.episodic_memory_valid.fill_(False)
+            self.episodic_memory_ptr.zero_()
 
     def set_memory_update_mode(self, enabled):
         self.memory_update_during_eval = bool(enabled)
 
-    def _retrieve_from_slots(self, q, memory_slots):
+    def _retrieve_from_slots(self, q, memory_slots, topk=None, valid_mask=None, query_proj=None, key_proj=None, value_proj=None):
         slot_count = memory_slots.size(1)
-        topk = min(slot_count, self.memory_topk)
-        k = self.key(memory_slots)
-        v = self.value(memory_slots)
+        if topk is None:
+            topk = self.memory_topk
+        if valid_mask is not None:
+            available_slots = int(valid_mask.sum(dim=1).min().item())
+            if available_slots <= 0:
+                return None, None, None, 0, 0
+            topk = min(topk, available_slots)
+        topk = min(slot_count, topk)
+        query_proj = self.query if query_proj is None else query_proj
+        key_proj = self.key if key_proj is None else key_proj
+        value_proj = self.value if value_proj is None else value_proj
+        q = query_proj(q) if query_proj is not self.query else q
+        k = key_proj(memory_slots)
+        v = value_proj(memory_slots)
         scores = torch.matmul(q, k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        if valid_mask is not None:
+            scores = scores.masked_fill(~valid_mask.unsqueeze(1), torch.finfo(scores.dtype).min)
         topk_scores, topk_indices = torch.topk(scores, k=topk, dim=-1)
         topk_weights = F.softmax(topk_scores, dim=-1)
         retrieved = torch.gather(
@@ -435,6 +503,7 @@ class RetrievalMemory(nn.Module):
         local_slots, local_count = self._build_memory_slots(x)
         persistent_slots = self._get_persistent_slots(x.size(0))
         external_slots = self._get_external_slots(x.size(0))
+        episodic_slots, episodic_valid = self._get_episodic_slots(x.size(0), x.device)
         q = self.query(x)
         controller_mask, controller_entropy = self._compute_controller_mask(x)
         local_retrieved, local_topk_indices, local_topk_weights, _, local_topk = self._retrieve_from_slots(q, local_slots)
@@ -470,11 +539,36 @@ class RetrievalMemory(nn.Module):
             external_count = 0
             external_topk = 0
 
+        if episodic_slots is not None:
+            episodic_retrieved, episodic_topk_indices, episodic_topk_weights, episodic_count, episodic_topk = self._retrieve_from_slots(
+                x,
+                episodic_slots,
+                topk=self.episodic_memory_topk,
+                valid_mask=episodic_valid,
+                query_proj=self.episodic_query,
+                key_proj=self.episodic_key,
+                value_proj=self.episodic_value,
+            )
+            if episodic_retrieved is not None:
+                output = output + episodic_retrieved * self.episodic_memory_weight
+            else:
+                episodic_topk_indices = None
+                episodic_topk_weights = None
+                episodic_count = 0
+                episodic_topk = 0
+        else:
+            episodic_retrieved = None
+            episodic_topk_indices = None
+            episodic_topk_weights = None
+            episodic_count = 0
+            episodic_topk = 0
+
         retrieved_context = output
         output = self.dropout(self.proj(output)) * self.retrieval_weight
         output = output * controller_mask
         self._update_persistent_memory(local_slots)
         self._update_external_memory(local_slots)
+        self._update_episodic_memory(local_slots)
 
         if not return_metrics:
             return output
@@ -503,6 +597,15 @@ class RetrievalMemory(nn.Module):
             )
         else:
             external_slot_hits = torch.zeros(x.size(0), 0, device=x.device, dtype=x.dtype)
+        if episodic_count > 0:
+            episodic_slot_hits = torch.zeros(x.size(0), self.episodic_memory_slots, device=x.device, dtype=x.dtype)
+            episodic_slot_hits.scatter_add_(
+                1,
+                episodic_topk_indices.reshape(x.size(0), -1),
+                torch.ones_like(episodic_topk_indices, dtype=x.dtype).reshape(x.size(0), -1),
+            )
+        else:
+            episodic_slot_hits = torch.zeros(x.size(0), 0, device=x.device, dtype=x.dtype)
 
         total_slots = local_count + persistent_count
         total_slot_hits = torch.cat((local_slot_hits, persistent_slot_hits), dim=1)
@@ -543,6 +646,11 @@ class RetrievalMemory(nn.Module):
             external_teacher_mask = torch.zeros_like(external_probs)
             external_teacher_fraction = torch.tensor(0.0, device=x.device)
             external_utility_margin = torch.tensor(0.0, device=x.device)
+        episodic_entropy_mean = torch.tensor(0.0, device=x.device)
+        if episodic_count > 0:
+            episodic_entropy_mean = -(
+                episodic_topk_weights * episodic_topk_weights.clamp_min(1e-9).log()
+            ).sum(dim=-1).mean()
 
         metrics = {
             'memory/active_fraction': torch.tensor(float(self.memory_topk) / float(total_slots), device=x.device),
@@ -571,6 +679,10 @@ class RetrievalMemory(nn.Module):
             'memory/external_teacher_fraction': external_teacher_fraction.detach(),
             'memory/external_utility_margin': external_utility_margin.detach(),
             'memory/external_weight': torch.tensor(float(self.external_memory_weight), device=x.device),
+            'memory/episodic_enabled': torch.tensor(1.0 if self.use_episodic_memory else 0.0, device=x.device),
+            'memory/episodic_slots': torch.tensor(float(episodic_count), device=x.device),
+            'memory/episodic_retrieval_entropy': episodic_entropy_mean.detach(),
+            'memory/episodic_weight': torch.tensor(float(self.episodic_memory_weight), device=x.device),
         }
         if persistent_count > 0:
             metrics['memory/persistent_slot_utilization'] = (persistent_slot_hits > 0).float().mean().detach()
@@ -582,6 +694,16 @@ class RetrievalMemory(nn.Module):
         else:
             metrics['memory/external_slot_utilization'] = torch.tensor(0.0, device=x.device)
             metrics['memory/external_valid_fraction'] = torch.tensor(0.0, device=x.device)
+        if episodic_count > 0:
+            episodic_valid_float = episodic_valid.float()
+            metrics['memory/episodic_slot_utilization'] = (
+                ((episodic_slot_hits > 0).float() * episodic_valid_float).sum()
+                / episodic_valid_float.sum().clamp_min(1.0)
+            ).detach()
+            metrics['memory/episodic_valid_fraction'] = episodic_valid_float.mean().detach()
+        else:
+            metrics['memory/episodic_slot_utilization'] = torch.tensor(0.0, device=x.device)
+            metrics['memory/episodic_valid_fraction'] = torch.tensor(0.0, device=x.device)
 
         aux_losses = {}
         if return_aux_losses:
@@ -661,6 +783,10 @@ class GPTConfig:
     external_memory_writes: int = 0
     external_memory_weight: float = 0.0
     external_memory_fraction: float = 0.25
+    use_episodic_memory: bool = False
+    episodic_memory_slots: int = 0
+    episodic_memory_topk: int = 1
+    episodic_memory_weight: float = 0.0
     use_multiscale_optim: bool = False
     retrieval_lr_scale: float = 1.0
     external_lr_scale: float = 1.0

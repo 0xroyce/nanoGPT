@@ -544,6 +544,32 @@ Write-mode note:
 - stream eval warmup must also be allowed to populate memory buffers
 - if eval metrics still show `memory/external_valid_fraction = 0.0`, the benchmark is not yet measuring real external-memory use
 
+Trusted external-memory note:
+
+- after fixing eval writes, the gated ring-buffer external-memory design still regressed slightly versus retrieval-only in stream mode
+- do not spend more runs on that design
+
+### Episodic-memory benchmark
+
+Fresh design hypothesis:
+
+- external memory should be per-sequence, not pooled across unrelated batch items
+- long-timescale memory should store compact step summaries, not fight local slots in one mixed bank
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.25 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-episodic-stream-2k | tee owt_memory_s32_k4_multiscale_x2_episodic_stream_2k.log
+```
+
+What to watch:
+
+- `val loss`
+- `memory/retrieval_entropy`
+- `memory/episodic_valid_fraction`
+- `memory/episodic_slot_utilization`
+- `memory/episodic_retrieval_entropy`
+
 Full repo-style GPT-2 reproduction config:
 
 ```bash

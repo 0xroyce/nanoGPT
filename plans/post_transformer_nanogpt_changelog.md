@@ -711,6 +711,59 @@ Why this matters:
 - this correction makes the stream external-memory benchmark finally test the intended behavior
 
 
+## Trusted Stream External-Memory Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with warmed stream evaluation
+- the same setup plus gated two-stage external memory, after eval warmup was allowed to populate memory
+
+Observed result:
+
+- retrieval plus multi-timescale optimizer groups reached about `3.3602` validation loss at step `2000`
+- the corrected gated external-memory run reached about `3.3889`
+- eval really used external memory in this run:
+  - `memory/external_valid_fraction` about `0.5000`
+  - `memory/external_slots` about `64.0000`
+  - `memory/external_fraction` about `0.2500`
+- external gate entropy stayed near `0.693`
+- external utility margin remained negative
+
+Interpretation:
+
+- the remaining problem is no longer the evaluation harness
+- the gated ring-buffer external-memory design itself is not good enough
+- this should be treated as a trusted negative result and retired
+
+
+## Per-Sequence Episodic Memory Prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `use_episodic_memory`
+- added `episodic_memory_slots`
+- added `episodic_memory_topk`
+- added `episodic_memory_weight`
+- episodic memory is now stored per batch sequence instead of being pooled across unrelated batch items
+- each sequence writes one summary per step into its own ring buffer
+- episodic retrieval is queried as a separate low-bandwidth path with no learned external gate
+
+Why this is the next direction:
+
+- it preserves the strong local retrieval branch
+- it avoids cross-stream contamination
+- it replaces the failed shared-bank plus uncertain-gate design with a simpler memory interface
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:
