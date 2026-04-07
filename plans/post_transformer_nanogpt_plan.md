@@ -155,6 +155,7 @@ Suggested config additions:
 - `use_retrieval_memory`
 - `memory_slots`
 - `memory_topk`
+- `memory_retrieval_weight`
 - `use_recurrent_state`
 - `state_dim`
 - `ffn_mode`
@@ -176,6 +177,24 @@ Decision gate:
 Hypothesis:
 
 - local or routed attention can reduce compute enough to improve cost without destroying language modeling quality
+
+Current status:
+
+- implemented and tested
+- useful as a correctness check
+- not a meaningful training-cost win in the current masked-dense implementation
+
+Observed result so far:
+
+- local attention at `attention_window=128` preserved validation loss on `shakespeare_char`
+- active attention fraction dropped below dense
+- wall-clock iteration time did not improve in a meaningful way
+
+Conclusion:
+
+- this phase validated the architecture seam
+- this phase did not validate cost reduction
+- further small window sweeps are lower priority than moving on to sparse FFN / MoE
 
 Start with the least risky variant first:
 
@@ -206,12 +225,40 @@ Success criteria:
 - stable training
 - acceptable degradation or improvement in validation loss at equal compute
 
+Phase 1 decision:
+
+- mark as implementation-successful but cost-reduction-unsuccessful
+- retain the code path for future reference
+- deprioritize further work here unless a truly sparse or kernel-efficient attention implementation is introduced
+
 
 ## Phase 2 - Sparse FFN / MoE
 
 Hypothesis:
 
 - activating only a subset of feed-forward capacity per token will reduce total active compute while preserving representational power
+
+Current status:
+
+- implemented and tested
+- top-1 routing is not promising in the current form
+- top-2 routing is architecturally promising but implementation-heavy
+
+Observed result so far:
+
+- `4 experts, top-1` reduced active FFN fraction to `0.25`
+- `4 experts, top-1` worsened validation loss and ran much slower than dense
+- `4 experts, top-2` reduced active FFN fraction to `0.50`
+- `4 experts, top-2` improved validation loss over dense in both short and longer `shakespeare_char` runs
+- `4 experts, top-2` reached validation loss about `1.5056` by step `1000`
+- both MoE variants were much slower than dense because the current implementation uses Python-level routing and expert dispatch
+
+Conclusion:
+
+- sparse FFN / MoE is a more promising architectural direction than masked local attention
+- current implementation does not yet reduce training cost
+- the quality benefit from top-2 routing does persist at longer training horizons
+- the next problem is implementation efficiency, not whether MoE helps
 
 Implementation order:
 
@@ -235,12 +282,24 @@ Success criteria:
 - balanced enough routing to avoid expert collapse
 - trainability on small hardware
 
+Phase 2 decision:
+
+- keep `top-1` low priority unless a better routing or regularization strategy is added
+- promote `top-2` as the current leading architectural direction
+- treat implementation efficiency as the main blocker, not architectural viability
+
 
 ## Phase 3 - Retrieval-First External Memory
 
 Hypothesis:
 
 - some factual or contextual burden can shift from slow-changing weights to fast-access memory
+
+Current status:
+
+- initial retrieval-first prototype implemented
+- first version is sequence-local and read-only
+- ready for smoke tests and short `shakespeare_char` runs
 
 Important clarification:
 
@@ -274,6 +333,14 @@ Recommended first version:
 - retrieval only
 - no learned writes across training steps yet
 
+Implemented first version:
+
+- sequence-local memory slots built by pooling the current residual stream
+- top-k retrieval from those slots for every token
+- retrieved vectors injected back into the residual stream before the Transformer blocks
+- no persistence across batches
+- no write path yet
+
 Reason:
 
 - this tests integration value without introducing hidden state bugs or checkpoint complexity
@@ -281,6 +348,14 @@ Reason:
 Deliverable:
 
 - optional retrieval vectors injected into the residual stream before or alongside attention
+
+Initial metrics to watch:
+
+- `memory/active_fraction`
+- `memory/slot_utilization`
+- `memory/retrieval_entropy`
+- `memory/slots`
+- `memory/topk`
 
 Success criteria:
 
@@ -804,3 +879,9 @@ If Phase 1 fails:
 - [ ] document why
 - [ ] revert to dense attention as baseline
 - [ ] move to sparse FFN or retrieval-first experiments without forcing the local-attention branch forward
+
+Current execution decision:
+
+- Phase 1 counts as a strategic dead end for now
+- keep dense attention as the baseline reference
+- move next to sparse FFN / MoE because it has a more direct path to reducing active compute

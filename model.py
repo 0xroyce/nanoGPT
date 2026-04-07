@@ -111,8 +111,8 @@ class CausalSelfAttention(nn.Module):
 
     def _get_attention_metrics(self, T):
         if self.attention_mode == 'dense':
-            active_fraction = 1.0
-            window_tokens = float(T)
+            active_fraction = torch.tensor(1.0)
+            window_tokens = torch.tensor(float(T))
         elif self.attention_mode == 'local':
             effective_window = min(T, self.attention_window)
             dense_active = T * (T + 1) / 2
@@ -120,11 +120,11 @@ class CausalSelfAttention(nn.Module):
                 effective_window * (effective_window + 1) / 2
                 + max(T - effective_window, 0) * effective_window
             )
-            active_fraction = local_active / dense_active
-            window_tokens = float(effective_window)
+            active_fraction = torch.tensor(local_active / dense_active, dtype=torch.float32)
+            window_tokens = torch.tensor(float(effective_window))
         else:
-            active_fraction = 0.0
-            window_tokens = 0.0
+            active_fraction = torch.tensor(0.0)
+            window_tokens = torch.tensor(0.0)
 
         return {
             'attention/active_fraction': active_fraction,
@@ -166,6 +166,26 @@ class DenseMLP(nn.Module):
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
+    def forward(self, x, return_metrics=False):
+        x = self.c_fc(x)
+        x = self.gelu(x)
+        x = self.c_proj(x)
+        x = self.dropout(x)
+        if not return_metrics:
+            return x
+
+        return x, {'ffn/active_fraction': torch.tensor(1.0)}
+
+
+class ExpertMLP(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
+        self.gelu = nn.GELU()
+        self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+        self.dropout = nn.Dropout(config.dropout)
+
     def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
@@ -174,9 +194,128 @@ class DenseMLP(nn.Module):
         return x
 
 
+class MoEFFN(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        if config.num_experts < 2:
+            raise ValueError("num_experts must be >= 2 when ffn_mode='moe'")
+        if config.experts_topk <= 0 or config.experts_topk > config.num_experts:
+            raise ValueError("experts_topk must be in [1, num_experts] when ffn_mode='moe'")
+
+        self.num_experts = config.num_experts
+        self.experts_topk = config.experts_topk
+        # The router decides which expert subnetwork each token should activate.
+        self.router = nn.Linear(config.n_embd, config.num_experts, bias=config.bias)
+        self.experts = nn.ModuleList([ExpertMLP(config) for _ in range(config.num_experts)])
+
+    def forward(self, x, return_metrics=False):
+        batch_size, seq_len, hidden_dim = x.shape
+        flat_x = x.reshape(batch_size * seq_len, hidden_dim)
+
+        router_logits = self.router(flat_x)
+        router_probs = F.softmax(router_logits, dim=-1)
+        topk_weights, topk_indices = torch.topk(router_probs, k=self.experts_topk, dim=-1)
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+
+        output = torch.zeros_like(flat_x)
+        token_expert_load = torch.zeros(self.num_experts, device=x.device, dtype=flat_x.dtype)
+
+        for expert_idx, expert in enumerate(self.experts):
+            token_idx, slot_idx = torch.where(topk_indices == expert_idx)
+            if token_idx.numel() == 0:
+                continue
+
+            expert_in = flat_x.index_select(0, token_idx)
+            expert_out = expert(expert_in)
+            weighted_out = expert_out * topk_weights[token_idx, slot_idx].unsqueeze(-1)
+            # Tokens can be routed to multiple experts, so we accumulate weighted outputs.
+            output.index_add_(0, token_idx, weighted_out)
+            token_expert_load[expert_idx] = token_idx.numel()
+
+        output = output.view(batch_size, seq_len, hidden_dim)
+        if not return_metrics:
+            return output
+
+        normalized_load = token_expert_load / max(token_expert_load.sum().item(), 1.0)
+        router_entropy = -(router_probs * router_probs.clamp_min(1e-9).log()).sum(dim=-1).mean()
+        metrics = {
+            'ffn/active_fraction': torch.tensor(float(self.experts_topk) / float(self.num_experts), device=x.device),
+            'moe/router_entropy': router_entropy.detach(),
+            'moe/expert_utilization': (token_expert_load > 0).float().mean().detach(),
+            'moe/expert_load_std': normalized_load.std(unbiased=False).detach(),
+        }
+        return output, metrics
+
+
+class RetrievalMemory(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        if config.memory_slots <= 0:
+            raise ValueError("memory_slots must be > 0 when use_retrieval_memory=True")
+        if config.memory_topk <= 0:
+            raise ValueError("memory_topk must be > 0 when use_retrieval_memory=True")
+
+        self.memory_slots = config.memory_slots
+        self.memory_topk = config.memory_topk
+        self.retrieval_weight = config.memory_retrieval_weight
+        self.query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.dropout = nn.Dropout(config.dropout)
+
+    def _build_memory_slots(self, x):
+        # Pool the current sequence into a small number of slots so retrieval stays explicit
+        # and cheap enough for early experiments.
+        num_slots = min(x.size(1), self.memory_slots)
+        slots = F.adaptive_avg_pool1d(x.transpose(1, 2), num_slots).transpose(1, 2)
+        return slots, num_slots
+
+    def forward(self, x, return_metrics=False):
+        memory_slots, num_slots = self._build_memory_slots(x)
+        topk = min(num_slots, self.memory_topk)
+
+        q = self.query(x)
+        k = self.key(memory_slots)
+        v = self.value(memory_slots)
+
+        scores = torch.matmul(q, k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        topk_scores, topk_indices = torch.topk(scores, k=topk, dim=-1)
+        topk_weights = F.softmax(topk_scores, dim=-1)
+        retrieved = torch.gather(
+            v.unsqueeze(1).expand(-1, x.size(1), -1, -1),
+            2,
+            topk_indices.unsqueeze(-1).expand(-1, -1, -1, v.size(-1)),
+        )
+        retrieved = (retrieved * topk_weights.unsqueeze(-1)).sum(dim=2)
+        output = self.dropout(self.proj(retrieved)) * self.retrieval_weight
+
+        if not return_metrics:
+            return output
+
+        slot_hits = torch.zeros(x.size(0), num_slots, device=x.device, dtype=x.dtype)
+        slot_hits.scatter_add_(
+            1,
+            topk_indices.reshape(x.size(0), -1),
+            torch.ones(x.size(0), x.size(1) * topk, device=x.device, dtype=x.dtype),
+        )
+        metrics = {
+            'memory/active_fraction': torch.tensor(float(topk) / float(num_slots), device=x.device),
+            'memory/slot_utilization': (slot_hits > 0).float().mean().detach(),
+            'memory/retrieval_entropy': -(topk_weights * topk_weights.clamp_min(1e-9).log()).sum(dim=-1).mean().detach(),
+            'memory/slots': torch.tensor(float(num_slots), device=x.device),
+            'memory/topk': torch.tensor(float(topk), device=x.device),
+        }
+        return output, metrics
+
+
 def build_ffn(config):
     if config.ffn_mode == 'dense':
         return DenseMLP(config)
+    if config.ffn_mode == 'moe':
+        return MoEFFN(config)
     raise NotImplementedError(f"ffn_mode={config.ffn_mode!r} is not implemented yet")
 
 class Block(nn.Module):
@@ -195,12 +334,13 @@ class Block(nn.Module):
             attn_out, attn_metrics = attn_out
             block_metrics.update(attn_metrics)
         x = x + attn_out
-        x = x + self.mlp(self.ln_2(x))
+        mlp_out = self.mlp(self.ln_2(x), return_metrics=return_metrics)
+        if return_metrics:
+            mlp_out, mlp_metrics = mlp_out
+            block_metrics.update(mlp_metrics)
+        x = x + mlp_out
         if not return_metrics:
             return x
-
-        # Dense FFNs activate the entire hidden expansion path for every token.
-        block_metrics['ffn/active_fraction'] = 1.0
         return x, block_metrics
 
 @dataclass
@@ -215,6 +355,10 @@ class GPTConfig:
     attention_mode: str = 'dense'
     attention_window: int = 1024
     attention_topk: int = 0
+    use_retrieval_memory: bool = False
+    memory_slots: int = 0
+    memory_topk: int = 0
+    memory_retrieval_weight: float = 1.0
     ffn_mode: str = 'dense'
     num_experts: int = 1
     experts_topk: int = 1
@@ -233,8 +377,13 @@ def _merge_metric_lists(metrics_history):
 
     averaged = {}
     for name, values in merged.items():
-        numeric_values = [float(v) for v in values]
-        averaged[name] = sum(numeric_values) / len(numeric_values)
+        tensor_values = []
+        for value in values:
+            if torch.is_tensor(value):
+                tensor_values.append(value.detach())
+            else:
+                tensor_values.append(torch.tensor(value, dtype=torch.float32))
+        averaged[name] = torch.stack(tensor_values).mean()
     return averaged
 
 class GPT(nn.Module):
@@ -252,6 +401,7 @@ class GPT(nn.Module):
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
+        self.retrieval_memory = RetrievalMemory(config) if config.use_retrieval_memory else None
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
@@ -299,6 +449,12 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
+        memory_metrics = {}
+        if self.retrieval_memory is not None:
+            memory_out = self.retrieval_memory(x, return_metrics=return_info)
+            if return_info:
+                memory_out, memory_metrics = memory_out
+            x = x + memory_out
         block_metrics = []
         for block in self.transformer.h:
             if return_info:
@@ -325,8 +481,19 @@ class GPT(nn.Module):
             loss_dict['lm_loss'] = loss
 
         metrics = _merge_metric_lists(block_metrics)
-        metrics['model/attention_mode_is_dense'] = 1.0 if self.config.attention_mode == 'dense' else 0.0
-        metrics['model/ffn_mode_is_dense'] = 1.0 if self.config.ffn_mode == 'dense' else 0.0
+        metrics.update(memory_metrics)
+        metrics['model/attention_mode_is_dense'] = torch.tensor(
+            1.0 if self.config.attention_mode == 'dense' else 0.0,
+            device=x.device,
+        )
+        metrics['model/ffn_mode_is_dense'] = torch.tensor(
+            1.0 if self.config.ffn_mode == 'dense' else 0.0,
+            device=x.device,
+        )
+        metrics['model/retrieval_memory_enabled'] = torch.tensor(
+            1.0 if self.retrieval_memory is not None else 0.0,
+            device=x.device,
+        )
         return GPTForwardOutput(logits=logits, loss=loss, loss_dict=loss_dict, metrics=metrics)
 
     def crop_block_size(self, block_size):

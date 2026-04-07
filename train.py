@@ -61,6 +61,10 @@ bias = False # do we use bias inside LayerNorm and Linear layers?
 attention_mode = 'dense'
 attention_window = 1024
 attention_topk = 0
+use_retrieval_memory = False
+memory_slots = 0
+memory_topk = 0
+memory_retrieval_weight = 1.0
 ffn_mode = 'dense'
 num_experts = 1
 experts_topk = 1
@@ -194,6 +198,10 @@ model_args = dict(
     attention_mode=attention_mode,
     attention_window=attention_window,
     attention_topk=attention_topk,
+    use_retrieval_memory=use_retrieval_memory,
+    memory_slots=memory_slots,
+    memory_topk=memory_topk,
+    memory_retrieval_weight=memory_retrieval_weight,
     ffn_mode=ffn_mode,
     num_experts=num_experts,
     experts_topk=experts_topk,
@@ -248,7 +256,7 @@ if block_size < model.config.block_size:
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+scaler = torch.amp.GradScaler(device=device_type, enabled=(dtype == 'float16'))
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)

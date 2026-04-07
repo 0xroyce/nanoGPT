@@ -27,6 +27,8 @@ The current `nanoGPT` fork includes:
 - experiment flags in [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
 - optional structured forward outputs
 - local causal attention via `attention_mode='local'`
+- sparse FFN / MoE via `ffn_mode='moe'`
+- retrieval-first memory via `use_retrieval_memory=True`
 - optional experiment metric logging in [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
 
 
@@ -51,7 +53,9 @@ There are three useful levels of testing:
 
 1. code smoke test with no dataset
 2. tiny real training run using `shakespeare_char`
-3. larger baseline run using `openwebtext`
+3. MoE comparison runs using `shakespeare_char`
+4. retrieval comparison runs using `shakespeare_char`
+5. larger baseline run using `openwebtext`
 
 
 ## 1. No-Data Smoke Tests
@@ -98,6 +102,31 @@ What this checks:
 - dense attention path
 - local attention path
 - structured metric output
+
+### Tiny forward-pass check for retrieval memory
+
+```bash
+python - <<'PY'
+import torch
+from model import GPT, GPTConfig
+
+cfg = GPTConfig(
+    vocab_size=64,
+    block_size=16,
+    n_layer=2,
+    n_head=2,
+    n_embd=16,
+    use_retrieval_memory=True,
+    memory_slots=4,
+    memory_topk=2,
+)
+model = GPT(cfg)
+idx = torch.randint(0, cfg.vocab_size, (2, 16))
+targets = torch.randint(0, cfg.vocab_size, (2, 16))
+info = model(idx, targets, return_info=True)
+print(round(info.loss.item(), 4), info.metrics)
+PY
+```
 
 
 ## 2. Quick Real Dataset Test
@@ -162,6 +191,60 @@ Good conservative windows to try first:
 
 - `128`
 - `64`
+
+### MoE training run
+
+Recommended first MoE comparison:
+
+```bash
+python train.py config/train_shakespeare_char.py \
+  --max_iters=500 \
+  --eval_interval=100 \
+  --ffn_mode=moe \
+  --num_experts=4 \
+  --experts_topk=2 \
+  --log_experiment_metrics=True \
+  --compile=False \
+  --out_dir=out-moe-top2 | tee moe_top2.log
+```
+
+Observed result so far:
+
+- `4 experts, top-2` is the strongest architectural signal in the project yet
+- it improved validation loss relative to dense on `shakespeare_char`
+- it is still much slower than dense in the current implementation
+
+Important note:
+
+- for now, prefer `--compile=False` on MoE runs while benchmarking routing behavior
+
+### Retrieval-memory training run
+
+Recommended first retrieval comparison:
+
+```bash
+python train.py config/train_shakespeare_char.py \
+  --max_iters=500 \
+  --eval_interval=100 \
+  --use_retrieval_memory=True \
+  --memory_slots=16 \
+  --memory_topk=4 \
+  --memory_retrieval_weight=1.0 \
+  --log_experiment_metrics=True \
+  --compile=False \
+  --out_dir=out-memory-topk4 | tee memory_topk4.log
+```
+
+What this first version is:
+
+- sequence-local read-only retrieval
+- pooled memory slots built from the current sequence
+- top-k memory injection before the block stack
+
+What to compare against:
+
+- dense baseline
+- `4 experts, top-2` MoE
 
 ### Sample from a trained checkpoint
 
@@ -282,6 +365,13 @@ For every run, capture:
 - MFU
 - `attention/active_fraction`
 - `attention/window_tokens`
+- `ffn/active_fraction`
+- `moe/router_entropy`
+- `moe/expert_utilization`
+- `moe/expert_load_std`
+- `memory/active_fraction`
+- `memory/slot_utilization`
+- `memory/retrieval_entropy`
 
 If possible also record:
 
@@ -315,7 +405,8 @@ Before launching a paid GPU run:
 1. run `python -m py_compile model.py train.py`
 2. run the no-data smoke test
 3. run one short `shakespeare_char` training job
-4. only then launch `openwebtext` experiments
+4. run one short retrieval or MoE variant
+5. only then launch `openwebtext` experiments
 
 
 ## Suggested First Paid GPU Sequence
@@ -323,12 +414,10 @@ Before launching a paid GPU run:
 Once Prime Intellect GPU access is ready:
 
 1. prepare `shakespeare_char` and run a short dense smoke train
-2. run the same config with `attention_mode=local`
-3. prepare `openwebtext` if not already prepared
-4. run a dense baseline on your chosen budget
-5. run local attention with `attention_window=256`
-6. run local attention with `attention_window=128`
-7. compare quality, speed, and memory
+2. run `4 experts, top-2` MoE on the same setup
+3. run the retrieval-memory variant on the same setup
+4. compare validation loss, iteration time, and routing / retrieval metrics
+5. only after that decide whether to benchmark on `openwebtext`
 
 
 ## Common Failure Modes
@@ -403,4 +492,16 @@ python train.py --dataset=openwebtext --device=cuda --compile=False
 
 ```bash
 python train.py --dataset=openwebtext --device=cuda --compile=False --attention_mode=local --attention_window=256 --log_experiment_metrics=True
+```
+
+### MoE Shakespeare run
+
+```bash
+python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --ffn_mode=moe --num_experts=4 --experts_topk=2 --log_experiment_metrics=True --compile=False --out_dir=out-moe-top2 | tee moe_top2.log
+```
+
+### Retrieval Shakespeare run
+
+```bash
+python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=16 --memory_topk=4 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --compile=False --out_dir=out-memory-topk4 | tee memory_topk4.log
 ```
