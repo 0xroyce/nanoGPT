@@ -627,6 +627,7 @@ class GPTConfig:
     external_memory_fraction: float = 0.25
     use_multiscale_optim: bool = False
     retrieval_lr_scale: float = 1.0
+    external_lr_scale: float = 1.0
     ffn_mode: str = 'dense'
     num_experts: int = 1
     experts_topk: int = 1
@@ -880,21 +881,33 @@ class GPT(nn.Module):
         device_type,
         use_multiscale_optim=False,
         retrieval_lr_scale=1.0,
+        external_lr_scale=1.0,
     ):
         # start with all of the candidate parameters
         param_dict = {pn: p for pn, p in self.named_parameters()}
         # filter out those that do not require grad
         param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
         retrieval_prefix = 'retrieval_memory.'
+        external_param_names = {
+            'retrieval_memory.external_router.weight',
+            'retrieval_memory.external_router.bias',
+        }
         backbone_decay_params = []
         backbone_nodecay_params = []
         retrieval_decay_params = []
         retrieval_nodecay_params = []
+        external_decay_params = []
+        external_nodecay_params = []
 
         for name, param in param_dict.items():
+            is_external_param = name in external_param_names
             is_retrieval_param = name.startswith(retrieval_prefix)
             is_decay_param = param.dim() >= 2
-            if is_retrieval_param and is_decay_param:
+            if is_external_param and is_decay_param:
+                external_decay_params.append(param)
+            elif is_external_param:
+                external_nodecay_params.append(param)
+            elif is_retrieval_param and is_decay_param:
                 retrieval_decay_params.append(param)
             elif is_retrieval_param:
                 retrieval_nodecay_params.append(param)
@@ -909,19 +922,28 @@ class GPT(nn.Module):
         ]
 
         retrieval_lr = learning_rate * retrieval_lr_scale if use_multiscale_optim else learning_rate
+        external_lr = learning_rate * external_lr_scale if use_multiscale_optim else learning_rate
         optim_groups.extend([
             {'params': retrieval_decay_params, 'weight_decay': weight_decay, 'lr': retrieval_lr},
             {'params': retrieval_nodecay_params, 'weight_decay': 0.0, 'lr': retrieval_lr},
+            {'params': external_decay_params, 'weight_decay': weight_decay, 'lr': external_lr},
+            {'params': external_nodecay_params, 'weight_decay': 0.0, 'lr': external_lr},
         ])
 
-        num_decay_params = sum(p.numel() for p in backbone_decay_params + retrieval_decay_params)
-        num_nodecay_params = sum(p.numel() for p in backbone_nodecay_params + retrieval_nodecay_params)
+        num_decay_params = sum(p.numel() for p in backbone_decay_params + retrieval_decay_params + external_decay_params)
+        num_nodecay_params = sum(p.numel() for p in backbone_nodecay_params + retrieval_nodecay_params + external_nodecay_params)
         num_retrieval_params = sum(p.numel() for p in retrieval_decay_params + retrieval_nodecay_params)
-        print(f"num decayed parameter tensors: {len(backbone_decay_params) + len(retrieval_decay_params)}, with {num_decay_params:,} parameters")
-        print(f"num non-decayed parameter tensors: {len(backbone_nodecay_params) + len(retrieval_nodecay_params)}, with {num_nodecay_params:,} parameters")
+        num_external_params = sum(p.numel() for p in external_decay_params + external_nodecay_params)
+        print(f"num decayed parameter tensors: {len(backbone_decay_params) + len(retrieval_decay_params) + len(external_decay_params)}, with {num_decay_params:,} parameters")
+        print(f"num non-decayed parameter tensors: {len(backbone_nodecay_params) + len(retrieval_nodecay_params) + len(external_nodecay_params)}, with {num_nodecay_params:,} parameters")
         print(f"num retrieval parameter tensors: {len(retrieval_decay_params) + len(retrieval_nodecay_params)}, with {num_retrieval_params:,} parameters")
+        print(f"num external parameter tensors: {len(external_decay_params) + len(external_nodecay_params)}, with {num_external_params:,} parameters")
         if use_multiscale_optim and num_retrieval_params > 0:
-            print(f"using multi-timescale optimizer: retrieval_lr_scale={retrieval_lr_scale:.4f}")
+            print(
+                "using multi-timescale optimizer: "
+                f"retrieval_lr_scale={retrieval_lr_scale:.4f}, "
+                f"external_lr_scale={external_lr_scale:.4f}"
+            )
         else:
             print("using single-timescale optimizer")
         # Create AdamW optimizer and use the fused version if it is available

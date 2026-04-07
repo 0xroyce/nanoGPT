@@ -594,6 +594,17 @@ Next implementation correction:
 - external memory is now queried in a separate stage with its own gate
 - this preserves local retrieval dynamics while still allowing explicit external lookup
 
+Observed result so far:
+
+- the gated two-stage external-memory design recovered much of the regression from the shared-pool version
+- it still did not beat the best local retrieval branch
+- the external gate remained near-maximally uncertain
+
+Next decision:
+
+- keep the two-stage external-memory design
+- help the external gate learn with its own timescale before changing memory size or write policy again
+
 
 ## Phase 6.5 - Local Learning Signals
 

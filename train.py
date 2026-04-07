@@ -76,6 +76,7 @@ external_memory_weight = 0.0
 external_memory_fraction = 0.25
 use_multiscale_optim = False
 retrieval_lr_scale = 1.0
+external_lr_scale = 1.0
 ffn_mode = 'dense'
 num_experts = 1
 experts_topk = 1
@@ -228,6 +229,7 @@ model_args = dict(
     external_memory_fraction=external_memory_fraction,
     use_multiscale_optim=use_multiscale_optim,
     retrieval_lr_scale=retrieval_lr_scale,
+    external_lr_scale=external_lr_scale,
     ffn_mode=ffn_mode,
     num_experts=num_experts,
     experts_topk=experts_topk,
@@ -292,6 +294,7 @@ optimizer = model.configure_optimizers(
     device_type,
     use_multiscale_optim=use_multiscale_optim,
     retrieval_lr_scale=retrieval_lr_scale,
+    external_lr_scale=external_lr_scale,
 )
 if init_from == 'resume':
     optimizer.load_state_dict(checkpoint['optimizer'])

@@ -41,6 +41,8 @@ Status:
 - explicit external-memory bank prototype started
 - shared-pool external-memory prototype benchmarked and rejected in current form
 - gated two-stage external-memory prototype started
+- gated two-stage external-memory prototype benchmarked as a partial recovery
+- external-memory timescale split started
 
 
 ## Plan Updates
@@ -558,6 +560,31 @@ Interpretation:
 - the problem is not the idea of external memory itself
 - the shared-pool interface contaminated the clean local retrieval dynamics
 - external memory needs a stricter two-stage interface, not a larger mixed memory pool
+
+
+## Gated External-Memory Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with `retrieval_lr_scale=2.0`
+- gated two-stage external-memory prototype
+
+Observed result:
+
+- multi-timescale `x2` reached about `2.6532` validation loss at step `2000`
+- the gated external-memory prototype improved over the shared-pool version and reached about `2.7008`
+- local retrieval entropy stayed low around `0.124`
+- external gate entropy stayed high around `0.693`
+
+Interpretation:
+
+- separating external memory into a second stage was the right architectural correction
+- the remaining problem is now the external gate learning dynamics, not basic interface contamination
+- the next step should help the external gate learn on its own timescale
 
 
 ## Phase 1 Benchmark Result
