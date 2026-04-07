@@ -31,6 +31,7 @@ The current `nanoGPT` fork includes:
 - retrieval-first memory via `use_retrieval_memory=True`
 - optional persistent-memory banking via `use_persistent_memory=True`
 - optional memory-controller routing via `use_memory_controller=True`
+- optional multi-timescale optimizer groups via `use_multiscale_optim=True`
 - optional experiment metric logging in [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
 
 
@@ -289,7 +290,8 @@ Controller-routing note:
 
 - the codebase now supports `use_memory_controller=True`
 - this adds an explicit token-level routing layer for retrieval access
-- it is the next preferred extension because it separates memory access from general computation more cleanly
+- this prototype underperformed badly on `openwebtext`
+- it should be treated as a failed branch, not the preferred next run
 
 ### Sample from a trained checkpoint
 
@@ -402,6 +404,20 @@ Recommended next benchmark:
 
 ```bash
 python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --use_memory_controller=True --memory_controller_fraction=0.5 --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-controller-2k | tee owt_memory_s32_k4_controller_2k.log
+```
+
+Observed result:
+
+- controller-routed retrieval reached about `4.6696` validation loss at step `2000`
+- retrieval-only remained far better at about `2.7048`
+- this branch reduced memory utilization and increased retrieval entropy
+
+### Multi-timescale retrieval benchmark
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-2k | tee owt_memory_s32_k4_multiscale_x2_2k.log
 ```
 
 Full repo-style GPT-2 reproduction config:

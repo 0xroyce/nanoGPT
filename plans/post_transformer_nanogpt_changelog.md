@@ -31,7 +31,8 @@ Status:
 - persistent-memory prototype added
 - persistent-memory prototype benchmarked and rejected in current form
 - routed persistent-memory prototype benchmarked and rejected in current form
-- explicit memory-controller routing started
+- explicit memory-controller routing benchmarked and rejected in current form
+- multi-timescale learning started
 
 
 ## Plan Updates
@@ -240,6 +241,21 @@ Current controller metrics exposed:
 - `memory/controller_enabled`
 
 
+### 8. Multi-timescale optimization prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `use_multiscale_optim`
+- added `retrieval_lr_scale`
+- split retrieval-memory parameters into their own optimizer groups
+- kept the winning retrieval-only architecture fixed while testing a different learning timescale for memory
+
+
 ## Phase 3 Benchmark Result
 
 Dataset used:
@@ -371,7 +387,34 @@ Interpretation:
 - naive persistence degraded the selective retrieval behavior that drove the win
 - routed persistence was directionally better but still not competitive
 - simple persistent banks should not be treated as the right path in their current form
-- the better next step is explicit controller routing over memory access
+- the better next step is not more bank tweaking on this design line
+
+
+## Memory-Controller Failure Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval-only with `memory_slots=32, memory_topk=4`
+- controller-routed retrieval with `memory_controller_fraction=0.5`
+
+Observed result:
+
+- retrieval-only reached about `2.7048` validation loss at step `2000`
+- controller-routed retrieval reached only about `4.6696` validation loss at step `2000`
+- controller entropy stayed around `0.655`
+- retrieval entropy stayed high around `1.14`
+- memory slot utilization dropped to about `0.66`
+
+Interpretation:
+
+- sparse routing by itself was not enough
+- token-level gating removed too much useful retrieval access
+- the controller made retrieval less selective and less utilized
+- retrieval-only remains the clear main branch
 
 
 ## Phase 1 Benchmark Result

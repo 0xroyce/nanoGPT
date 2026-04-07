@@ -69,6 +69,8 @@ use_persistent_memory = False
 persistent_memory_momentum = 0.95
 use_memory_controller = False
 memory_controller_fraction = 1.0
+use_multiscale_optim = False
+retrieval_lr_scale = 1.0
 ffn_mode = 'dense'
 num_experts = 1
 experts_topk = 1
@@ -210,6 +212,8 @@ model_args = dict(
     persistent_memory_momentum=persistent_memory_momentum,
     use_memory_controller=use_memory_controller,
     memory_controller_fraction=memory_controller_fraction,
+    use_multiscale_optim=use_multiscale_optim,
+    retrieval_lr_scale=retrieval_lr_scale,
     ffn_mode=ffn_mode,
     num_experts=num_experts,
     experts_topk=experts_topk,
@@ -267,7 +271,14 @@ model.to(device)
 scaler = torch.amp.GradScaler(device=device_type, enabled=(dtype == 'float16'))
 
 # optimizer
-optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
+optimizer = model.configure_optimizers(
+    weight_decay,
+    learning_rate,
+    (beta1, beta2),
+    device_type,
+    use_multiscale_optim=use_multiscale_optim,
+    retrieval_lr_scale=retrieval_lr_scale,
+)
 if init_from == 'resume':
     optimizer.load_state_dict(checkpoint['optimizer'])
 checkpoint = None # free up memory

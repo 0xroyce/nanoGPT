@@ -30,6 +30,7 @@ How this affects the plan:
 - retrieval, routing, and multi-objective training remain top-tier directions
 - local learning signals are tracked as a research axis, but not required in the first runnable `nanoGPT` milestones
 - multi-timescale learning should stay in the roadmap even if the first implementation is optimizer-level only
+- naive persistent banks and simple token-level gating are not the current path to the memory/computation split we actually want
 
 
 ## North Star
@@ -85,6 +86,12 @@ A lower-cost system may emerge if the model instead learns to:
 - learn with both fast and slow adaptation paths
 - predict structure, state, and retrieval targets in addition to tokens
 
+Practical interpretation for the current harness:
+
+- keep memory explicit and separate from the main dense compute path
+- prefer routing that improves memory quality instead of routing that simply blocks memory access
+- attack the single-timescale problem directly before adding another controller layer
+
 
 ## Priority Ranking
 
@@ -101,6 +108,7 @@ Important execution note:
 
 - this is a priority ranking for long-term impact, not the coding order
 - the coding order will still begin with the easiest high-signal experiments that keep the harness debuggable
+- the current safest path is the winning retrieval-only branch plus systems-level improvements around it
 
 
 ## Design Principles
@@ -380,7 +388,8 @@ Observed failure:
 
 - both the naive persistent-memory bank and a first routed persistent-memory variant underperformed badly relative to retrieval-only
 - they increased retrieval entropy and weakened the sharp selective behavior that made retrieval successful
-- this means simple persistence is not enough; memory source separation needs a better controller
+- a token-level memory controller also underperformed badly and reduced useful memory utilization
+- this means simple persistence and simple gating are not enough in their current forms
 
 Interpretation:
 
@@ -416,9 +425,9 @@ Phase 3 decision:
 - keep `memory_slots=32, memory_topk=4` as the current best retrieval setting
 - deprioritize retrieval-plus-MoE because the first combination run underperformed badly
 - keep `memory_retrieval_weight=1.0` as the current default
-- move next toward persistent / more external memory instead of more MoE work
-- but do not keep iterating naive persistent banks
-- the next design step should introduce an explicit controller that routes when tokens access memory versus relying on blended memory mechanisms
+- move next toward multi-timescale learning instead of more MoE work
+- do not keep iterating naive persistent banks or simple token-level controllers
+- keep retrieval-only `32/4` as the active baseline for the next branch
 
 Longer-term direction after the first prototype:
 
