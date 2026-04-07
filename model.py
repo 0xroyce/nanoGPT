@@ -264,6 +264,7 @@ class RetrievalMemory(nn.Module):
         self.retrieval_weight = config.memory_retrieval_weight
         self.use_persistent_memory = config.use_persistent_memory
         self.persistent_memory_momentum = config.persistent_memory_momentum
+        self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
@@ -280,13 +281,10 @@ class RetrievalMemory(nn.Module):
         slots = F.adaptive_avg_pool1d(x.transpose(1, 2), num_slots).transpose(1, 2)
         return slots, num_slots
 
-    def _get_memory_candidates(self, local_slots):
-        local_count = local_slots.size(1)
+    def _get_persistent_slots(self, batch_size):
         if not self.use_persistent_memory or not bool(self.persistent_memory_valid.item()):
-            return local_slots, local_count, 0
-
-        persistent_slots = self.persistent_memory.unsqueeze(0).expand(local_slots.size(0), -1, -1)
-        return torch.cat((local_slots, persistent_slots), dim=1), local_count, persistent_slots.size(1)
+            return None
+        return self.persistent_memory.unsqueeze(0).expand(batch_size, -1, -1)
 
     @torch.no_grad()
     def _update_persistent_memory(self, local_slots):
@@ -318,49 +316,91 @@ class RetrievalMemory(nn.Module):
         self.persistent_memory.zero_()
         self.persistent_memory_valid.fill_(False)
 
-    def forward(self, x, return_metrics=False):
-        local_slots, local_slot_count = self._build_memory_slots(x)
-        memory_slots, local_count, persistent_count = self._get_memory_candidates(local_slots)
-        total_slots = memory_slots.size(1)
-        topk = min(total_slots, self.memory_topk)
-
-        q = self.query(x)
+    def _retrieve_from_slots(self, q, memory_slots):
+        slot_count = memory_slots.size(1)
+        topk = min(slot_count, self.memory_topk)
         k = self.key(memory_slots)
         v = self.value(memory_slots)
-
         scores = torch.matmul(q, k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         topk_scores, topk_indices = torch.topk(scores, k=topk, dim=-1)
         topk_weights = F.softmax(topk_scores, dim=-1)
         retrieved = torch.gather(
-            v.unsqueeze(1).expand(-1, x.size(1), -1, -1),
+            v.unsqueeze(1).expand(-1, q.size(1), -1, -1),
             2,
             topk_indices.unsqueeze(-1).expand(-1, -1, -1, v.size(-1)),
         )
         retrieved = (retrieved * topk_weights.unsqueeze(-1)).sum(dim=2)
-        output = self.dropout(self.proj(retrieved)) * self.retrieval_weight
+        return retrieved, topk_indices, topk_weights, slot_count, topk
+
+    def forward(self, x, return_metrics=False):
+        local_slots, local_count = self._build_memory_slots(x)
+        persistent_slots = self._get_persistent_slots(x.size(0))
+        q = self.query(x)
+        local_retrieved, local_topk_indices, local_topk_weights, _, local_topk = self._retrieve_from_slots(q, local_slots)
+
+        if persistent_slots is not None:
+            persistent_retrieved, persistent_topk_indices, persistent_topk_weights, persistent_count, persistent_topk = self._retrieve_from_slots(q, persistent_slots)
+            source_logits = self.source_router(x)
+            source_probs = F.softmax(source_logits, dim=-1)
+            source_choice = torch.argmax(source_probs, dim=-1)
+            hard_source = F.one_hot(source_choice, num_classes=2).to(dtype=x.dtype)
+            source_weights = hard_source - source_probs.detach() + source_probs
+            local_source_weight = source_weights[..., 0:1]
+            persistent_source_weight = source_weights[..., 1:2]
+            source_entropy = -(source_probs * source_probs.clamp_min(1e-9).log()).sum(dim=-1).mean()
+            output = local_source_weight * local_retrieved + persistent_source_weight * persistent_retrieved
+        else:
+            persistent_count = 0
+            persistent_topk = 0
+            persistent_topk_indices = None
+            persistent_topk_weights = None
+            source_entropy = torch.tensor(0.0, device=x.device)
+            local_source_weight = torch.ones_like(x[..., :1])
+            persistent_source_weight = torch.zeros_like(x[..., :1])
+            output = local_retrieved
+
+        output = self.dropout(self.proj(output)) * self.retrieval_weight
         self._update_persistent_memory(local_slots)
 
         if not return_metrics:
             return output
 
-        slot_hits = torch.zeros(x.size(0), total_slots, device=x.device, dtype=x.dtype)
-        slot_hits.scatter_add_(
+        local_slot_hits = torch.zeros(x.size(0), local_count, device=x.device, dtype=x.dtype)
+        local_slot_hits.scatter_add_(
             1,
-            topk_indices.reshape(x.size(0), -1),
-            torch.ones(x.size(0), x.size(1) * topk, device=x.device, dtype=x.dtype),
+            local_topk_indices.reshape(x.size(0), -1),
+            local_source_weight.expand(-1, -1, local_topk).reshape(x.size(0), -1),
         )
-        local_slot_hits = slot_hits[:, :local_count]
-        persistent_slot_hits = slot_hits[:, local_count:]
-        persistent_retrievals = (topk_indices >= local_count).float()
+        if persistent_count > 0:
+            persistent_slot_hits = torch.zeros(x.size(0), persistent_count, device=x.device, dtype=x.dtype)
+            persistent_slot_hits.scatter_add_(
+                1,
+                persistent_topk_indices.reshape(x.size(0), -1),
+                persistent_source_weight.expand(-1, -1, persistent_topk).reshape(x.size(0), -1),
+            )
+        else:
+            persistent_slot_hits = torch.zeros(x.size(0), 0, device=x.device, dtype=x.dtype)
+
+        total_slots = local_count + persistent_count
+        total_slot_hits = torch.cat((local_slot_hits, persistent_slot_hits), dim=1) if persistent_count > 0 else local_slot_hits
+        retrieval_entropy = (
+            local_source_weight.squeeze(-1) * -(local_topk_weights * local_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
+        )
+        if persistent_count > 0:
+            retrieval_entropy = retrieval_entropy + (
+                persistent_source_weight.squeeze(-1) * -(persistent_topk_weights * persistent_topk_weights.clamp_min(1e-9).log()).sum(dim=-1)
+            )
+
         metrics = {
-            'memory/active_fraction': torch.tensor(float(topk) / float(total_slots), device=x.device),
-            'memory/slot_utilization': (slot_hits > 0).float().mean().detach(),
+            'memory/active_fraction': torch.tensor(float(self.memory_topk) / float(total_slots), device=x.device),
+            'memory/slot_utilization': (total_slot_hits > 0).float().mean().detach(),
             'memory/local_slot_utilization': (local_slot_hits > 0).float().mean().detach(),
-            'memory/retrieval_entropy': -(topk_weights * topk_weights.clamp_min(1e-9).log()).sum(dim=-1).mean().detach(),
+            'memory/retrieval_entropy': retrieval_entropy.mean().detach(),
+            'memory/source_entropy': source_entropy.detach(),
             'memory/slots': torch.tensor(float(total_slots), device=x.device),
-            'memory/topk': torch.tensor(float(topk), device=x.device),
+            'memory/topk': torch.tensor(float(self.memory_topk), device=x.device),
             'memory/local_slots': torch.tensor(float(local_count), device=x.device),
-            'memory/persistent_active_fraction': persistent_retrievals.mean().detach(),
+            'memory/persistent_active_fraction': persistent_source_weight.mean().detach(),
             'memory/persistent_enabled': torch.tensor(1.0 if self.use_persistent_memory else 0.0, device=x.device),
             'memory/persistent_slots': torch.tensor(float(persistent_count), device=x.device),
             'memory/persistent_valid': torch.tensor(
