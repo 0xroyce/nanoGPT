@@ -156,6 +156,8 @@ Suggested config additions:
 - `memory_slots`
 - `memory_topk`
 - `memory_retrieval_weight`
+- `use_persistent_memory`
+- `persistent_memory_momentum`
 - `use_recurrent_state`
 - `state_dim`
 - `ffn_mode`
@@ -299,7 +301,10 @@ Current status:
 
 - initial retrieval-first prototype implemented
 - first version is sequence-local and read-only
-- ready for smoke tests and short `shakespeare_char` runs
+- validated on short and longer `shakespeare_char` runs
+- currently the strongest architectural result in the project
+- validated on `openwebtext` mini runs and longer `5k` runs
+- optional persistent-memory bank prototype now implemented in the harness
 
 Important clarification:
 
@@ -341,6 +346,40 @@ Implemented first version:
 - no persistence across batches
 - no write path yet
 
+Observed result so far:
+
+- `memory_slots=16, memory_topk=4` reached validation loss about `0.9976` at step `500`
+- the same setup reached validation loss about `0.6100` at step `1000`
+- `memory_slots=32, memory_topk=4` reached validation loss about `0.6088` at step `500`
+- `memory_slots=32, memory_topk=4` reached validation loss about `0.3142` at step `1000`
+- on `openwebtext` mini, dense reached about `6.5473` at step `500`
+- on `openwebtext` mini, retrieval `32/4` reached about `6.4784` at step `500`
+- on `openwebtext` mini at `2000` steps, dense reached about `5.3960` while retrieval `32/4` reached about `2.7048`
+- on `openwebtext` mini at `5000` steps, retrieval `32/4` reached about `0.8092`
+- this substantially outperformed both dense and MoE top-2 on `shakespeare_char`
+- retrieval also transferred strongly to `openwebtext` once training was allowed to run longer
+- iteration time stayed much closer to dense than to MoE
+- retrieval entropy collapsed over training while slot utilization remained high
+
+Weight-ablation result:
+
+- lowering `memory_retrieval_weight` to `0.5` hurt badly and reached only about `1.3294` at step `500`
+- increasing `memory_retrieval_weight` to `1.5` stayed strong at about `0.5915` at step `500`
+- the current default `memory_retrieval_weight=1.0` remains the best tested setting so far
+
+Persistent-memory prototype:
+
+- the harness now supports an optional persistent memory bank
+- the persistent bank is updated with an EMA-style rule across training steps
+- evaluation resets the bank explicitly to avoid split leakage
+- this is the first bridge from sequence-local retrieval toward more external memory semantics
+
+Interpretation:
+
+- retrieval-style sequence memory is the current leading direction
+- the gain is too large to ignore, even with the important caveat that this is still sequence-local rather than persistent external memory
+- the next question is no longer whether retrieval helps, but which retrieval design choices matter most
+
 Reason:
 
 - this tests integration value without introducing hidden state bugs or checkpoint complexity
@@ -361,6 +400,15 @@ Success criteria:
 
 - retrieval integration runs stably
 - measurable gain in loss or parameter efficiency relative to its overhead
+
+Phase 3 decision:
+
+- promote retrieval-first memory to the leading experimental branch
+- run ablations on `memory_slots` and `memory_topk`
+- keep `memory_slots=32, memory_topk=4` as the current best retrieval setting
+- deprioritize retrieval-plus-MoE because the first combination run underperformed badly
+- keep `memory_retrieval_weight=1.0` as the current default
+- move next toward persistent / more external memory instead of more MoE work
 
 Longer-term direction after the first prototype:
 

@@ -65,6 +65,8 @@ use_retrieval_memory = False
 memory_slots = 0
 memory_topk = 0
 memory_retrieval_weight = 1.0
+use_persistent_memory = False
+persistent_memory_momentum = 0.95
 ffn_mode = 'dense'
 num_experts = 1
 experts_topk = 1
@@ -202,6 +204,8 @@ model_args = dict(
     memory_slots=memory_slots,
     memory_topk=memory_topk,
     memory_retrieval_weight=memory_retrieval_weight,
+    use_persistent_memory=use_persistent_memory,
+    persistent_memory_momentum=persistent_memory_momentum,
     ffn_mode=ffn_mode,
     num_experts=num_experts,
     experts_topk=experts_topk,
@@ -281,6 +285,8 @@ def estimate_loss():
     metric_out = {}
     model.eval()
     for split in ['train', 'val']:
+        if hasattr(raw_model, 'reset_memory'):
+            raw_model.reset_memory()
         losses = torch.zeros(eval_iters)
         metric_sums = {}
         for k in range(eval_iters):
@@ -296,6 +302,8 @@ def estimate_loss():
         out[split] = losses.mean()
         metric_out[split] = {name: total / eval_iters for name, total in metric_sums.items()}
     model.train()
+    if hasattr(raw_model, 'reset_memory'):
+        raw_model.reset_memory()
     return out, metric_out
 
 # learning rate decay scheduler (cosine with warmup)
@@ -319,9 +327,10 @@ if wandb_log and master_process:
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
+if hasattr(raw_model := (model.module if ddp else model), 'reset_memory'):
+    raw_model.reset_memory()
 t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
-raw_model = model.module if ddp else model # unwrap DDP container if needed
 running_mfu = -1.0
 last_loss_dict = {}
 last_metrics = {}

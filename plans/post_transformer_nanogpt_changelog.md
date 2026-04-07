@@ -22,6 +22,13 @@ Status:
 - longer MoE top-2 benchmark complete
 - MoE top-2 promoted as the leading architectural direction so far
 - Phase 3 minimal retrieval-first prototype complete
+- initial retrieval benchmark complete
+- longer retrieval benchmark complete
+- retrieval-first memory promoted as the leading architectural direction so far
+- retrieval `32/4` benchmark established as the new best result
+- retrieval-weight ablation completed
+- openwebtext retrieval transfer validated
+- persistent-memory prototype added
 
 
 ## Plan Updates
@@ -64,6 +71,8 @@ New config fields added:
 - `memory_slots`
 - `memory_topk`
 - `memory_retrieval_weight`
+- `use_persistent_memory`
+- `persistent_memory_momentum`
 - `ffn_mode`
 - `num_experts`
 - `experts_topk`
@@ -177,6 +186,141 @@ Important implementation note:
 - this is meant to test whether explicit retrieval helps before adding more stateful memory machinery
 
 
+### 6. Persistent-memory prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `use_persistent_memory`
+- added `persistent_memory_momentum`
+- added an optional persistent memory bank to the retrieval module
+- persistent memory is updated with an EMA-style rule from pooled local memory slots during training
+- evaluation resets memory explicitly to avoid leakage between train and validation estimates
+- added persistent-memory metrics
+
+Current persistent-memory metrics exposed:
+
+- `memory/local_slot_utilization`
+- `memory/local_slots`
+- `memory/persistent_active_fraction`
+- `memory/persistent_enabled`
+- `memory/persistent_slot_utilization`
+- `memory/persistent_slots`
+- `memory/persistent_valid`
+
+
+## Phase 3 Benchmark Result
+
+Dataset used:
+
+- `shakespeare_char`
+
+Compared runs:
+
+- dense baseline
+- MoE with `4 experts, top-2`
+- retrieval-first memory with `memory_slots=16, memory_topk=4`
+
+Observed result:
+
+- dense final validation loss at step `500`: about `1.7170`
+- MoE top-2 final validation loss at step `500`: about `1.6767`
+- MoE top-2 final validation loss at step `1000`: about `1.5056`
+- retrieval final validation loss at step `500`: about `0.9976`
+- retrieval final validation loss at step `1000`: about `0.6100`
+- retrieval `32/4` final validation loss at step `500`: about `0.6088`
+- retrieval `32/4` final validation loss at step `1000`: about `0.3142`
+- dense iteration time near the end: about `19ms`
+- MoE top-2 iteration time near the end: about `72-75ms`
+- retrieval iteration time near the end: about `30ms`
+
+Retrieval behavior:
+
+- `memory/active_fraction` stayed at `0.25`
+- `memory/slot_utilization` stayed high and returned to `1.0`
+- `memory/retrieval_entropy` dropped from about `1.3863` at step `0` to about `0.0798` at step `1000`
+
+Interpretation:
+
+- retrieval-style sequence memory is the strongest result in the project so far
+- the quality improvement is much larger than the MoE improvement and comes at a much smaller runtime cost
+- this is still not true persistent external memory, so the result should be described honestly as sequence-local retrieval augmentation
+- even with that caveat, retrieval has clearly become the main branch to deepen next
+
+
+## Retrieval Ablation Result
+
+Compared runs:
+
+- retrieval with `memory_slots=8, memory_topk=2`
+- retrieval with `memory_slots=16, memory_topk=2`
+- retrieval with `memory_slots=32, memory_topk=4`
+- retrieval with `memory_slots=16, memory_topk=8`
+- retrieval with `memory_slots=32, memory_topk=4, memory_retrieval_weight=0.5`
+- retrieval with `memory_slots=32, memory_topk=4, memory_retrieval_weight=1.5`
+- retrieval plus MoE top-2
+
+Observed result:
+
+- `8/2` reached about `1.4175` at step `500`
+- `16/2` reached about `1.1444` at step `500`
+- `32/4` reached about `0.6088` at step `500`
+- `16/8` reached about `1.2525` at step `500`
+- `32/4` with weight `0.5` reached about `1.3294` at step `500`
+- `32/4` with weight `1.5` reached about `0.5915` at step `500`
+- retrieval plus MoE top-2 reached only about `1.6070` at step `500`
+
+Interpretation:
+
+- more memory slots helped substantially
+- increasing retrieval breadth too far hurt
+- reducing retrieval strength too much hurt badly
+- retrieval plus MoE was clearly worse than retrieval alone and much slower
+- `memory_slots=32, memory_topk=4` is the current best retrieval structure
+- `memory_retrieval_weight=1.0` remains the best validated default because it also won the longer `1000` step run
+
+
+## OpenWebText Retrieval Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- dense mini baseline
+- retrieval with `memory_slots=32, memory_topk=4, memory_retrieval_weight=1.0`
+
+Observed result:
+
+- dense mini reached about `6.5473` validation loss at step `500`
+- retrieval reached about `6.4784` validation loss at step `500`
+- dense mini reached about `5.3960` validation loss at step `2000`
+- retrieval reached about `2.7048` validation loss at step `2000`
+- retrieval reached about `0.8092` validation loss at step `5000`
+- dense iteration times near the end of the `2000` step run were often about `25-50ms`
+- retrieval iteration times near the end of the `2000` step run were often about `48-110ms`
+- retrieval iteration times near the end of the `5000` step run were often about `164-196ms`
+
+Retrieval behavior:
+
+- `memory/active_fraction` stayed at `0.1250`
+- `memory/retrieval_entropy` collapsed to about `0.153` by step `2000`
+- `memory/retrieval_entropy` reached about `0.102` by step `5000`
+- `memory/slot_utilization` stayed at `1.0000`
+
+Interpretation:
+
+- retrieval is no longer just a small-dataset result
+- the winning `32/4` retrieval setting transferred strongly to `openwebtext`
+- retrieval became sparse and highly selective on a real dataset as training progressed
+- retrieval is now the main validated architectural branch in this repo
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:
@@ -240,8 +384,7 @@ Observed smoke-test result:
 - no optimized MoE dispatch path
 - no recurrent state path yet
 - no auxiliary training objectives yet
-- no persistent retrieval write path yet
-- no retrieval benchmark result yet
+- no true external write/read memory semantics yet
 
 
 ## Phase 2 Benchmark Result
@@ -292,6 +435,6 @@ Decision:
 
 Next implementation target:
 
-1. benchmark the new retrieval-first path on `shakespeare_char`
-2. compare retrieval-only against dense and MoE top-2
-3. then decide whether to deepen retrieval, combine retrieval with MoE, or return to MoE efficiency work
+1. keep `memory_slots=32, memory_topk=4` as the retrieval baseline
+2. benchmark the new persistent-memory option against retrieval-only
+3. continue pushing toward a more external memory design

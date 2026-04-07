@@ -29,6 +29,7 @@ The current `nanoGPT` fork includes:
 - local causal attention via `attention_mode='local'`
 - sparse FFN / MoE via `ffn_mode='moe'`
 - retrieval-first memory via `use_retrieval_memory=True`
+- optional persistent-memory banking via `use_persistent_memory=True`
 - optional experiment metric logging in [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
 
 
@@ -246,6 +247,42 @@ What to compare against:
 - dense baseline
 - `4 experts, top-2` MoE
 
+Observed result so far:
+
+- retrieval with `memory_slots=16` and `memory_topk=4` reached about `0.9976` validation loss at step `500`
+- the same setup reached about `0.6100` validation loss at step `1000`
+- retrieval with `memory_slots=32` and `memory_topk=4` reached about `0.6088` validation loss at step `500`
+- the same `32/4` setup reached about `0.3142` validation loss at step `1000`
+- this strongly outperformed both dense and MoE top-2 on `shakespeare_char`
+- runtime stayed much closer to dense than to MoE
+
+Recommended next retrieval ablations:
+
+- `memory_slots=8`, `memory_topk=2`
+- `memory_slots=16`, `memory_topk=2`
+- `memory_slots=32`, `memory_topk=4`
+- `memory_slots=16`, `memory_topk=8`
+
+Current best retrieval setting:
+
+- `memory_slots=32`
+- `memory_topk=4`
+- `memory_retrieval_weight=1.0`
+- `use_persistent_memory=False` for the current winning validated runs
+
+Weight-ablation note:
+
+- `memory_retrieval_weight=0.5` underperformed badly
+- `memory_retrieval_weight=1.5` stayed competitive at step `500`
+- `memory_retrieval_weight=1.0` remains the safest best default because it also won the longer `1000` step run
+
+Persistent-memory note:
+
+- the codebase now supports `use_persistent_memory=True`
+- this adds an EMA-updated memory bank that persists across training steps
+- evaluation resets memory explicitly before loss estimation
+- this is the next retrieval extension to benchmark, not the current best validated default
+
 ### Sample from a trained checkpoint
 
 ```bash
@@ -299,8 +336,13 @@ Run:
 
 ```bash
 cd /Users/0xroyce/WebstormProjects/Phoenix/nanoGPT
-python data/openwebtext/prepare.py
+HF_HOME=/workspace/hf_cache HF_DATASETS_CACHE=/workspace/hf_datasets_cache TMPDIR=/workspace/tmp python data/openwebtext/prepare.py
 ```
+
+Practical note:
+
+- in containers, avoid the default Hugging Face cache under `/root/.cache/huggingface`
+- that path can fill the smaller overlay filesystem even when `/workspace` has plenty of free space
 
 ### Evaluate a GPT-2 baseline
 
@@ -316,6 +358,29 @@ Small single-GPU style baseline:
 
 ```bash
 python train.py --dataset=openwebtext --compile=False --device=cuda
+```
+
+### Retrieval OpenWebText validation
+
+Best validated retrieval run so far:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=12 --block_size=256 --gradient_accumulation_steps=8 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=5000 --lr_decay_iters=5000 --warmup_iters=200 --eval_interval=500 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-5k | tee owt_memory_s32_k4_5k.log
+```
+
+Observed result so far:
+
+- retrieval transferred strongly to `openwebtext`
+- the `32/4` retrieval setting reached about `2.7048` validation loss at step `2000`
+- the same retrieval setting reached about `0.8092` validation loss at step `5000`
+- retrieval metrics became sparse and highly selective on the larger dataset too
+
+### Persistent-memory benchmark
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --use_persistent_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --persistent_memory_momentum=0.95 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-persistent-2k | tee owt_memory_s32_k4_persistent_2k.log
 ```
 
 Full repo-style GPT-2 reproduction config:
@@ -370,6 +435,13 @@ For every run, capture:
 - `moe/expert_utilization`
 - `moe/expert_load_std`
 - `memory/active_fraction`
+- `memory/local_slot_utilization`
+- `memory/local_slots`
+- `memory/persistent_active_fraction`
+- `memory/persistent_enabled`
+- `memory/persistent_slot_utilization`
+- `memory/persistent_slots`
+- `memory/persistent_valid`
 - `memory/slot_utilization`
 - `memory/retrieval_entropy`
 
@@ -417,7 +489,9 @@ Once Prime Intellect GPU access is ready:
 2. run `4 experts, top-2` MoE on the same setup
 3. run the retrieval-memory variant on the same setup
 4. compare validation loss, iteration time, and routing / retrieval metrics
-5. only after that decide whether to benchmark on `openwebtext`
+5. run a small retrieval ablation sweep
+6. keep the winning retrieval setting as the main branch
+7. only after that decide whether to benchmark on `openwebtext`
 
 
 ## Common Failure Modes
@@ -479,13 +553,25 @@ python train.py config/train_shakespeare_char.py --attention_mode=local --attent
 ### Prepare OpenWebText
 
 ```bash
-python data/openwebtext/prepare.py
+HF_HOME=/workspace/hf_cache HF_DATASETS_CACHE=/workspace/hf_datasets_cache TMPDIR=/workspace/tmp python data/openwebtext/prepare.py
 ```
 
 ### Dense OpenWebText run
 
 ```bash
 python train.py --dataset=openwebtext --device=cuda --compile=False
+```
+
+### Retrieval OpenWebText run
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=12 --block_size=256 --gradient_accumulation_steps=8 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=5000 --lr_decay_iters=5000 --warmup_iters=200 --eval_interval=500 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-5k | tee owt_memory_s32_k4_5k.log
+```
+
+### Persistent-memory OpenWebText run
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --use_retrieval_memory=True --use_persistent_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --persistent_memory_momentum=0.95 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-persistent-2k | tee owt_memory_s32_k4_persistent_2k.log
 ```
 
 ### Local OpenWebText run
@@ -504,4 +590,20 @@ python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval
 
 ```bash
 python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=16 --memory_topk=4 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --compile=False --out_dir=out-memory-topk4 | tee memory_topk4.log
+```
+
+### Retrieval ablation runs
+
+```bash
+python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=8 --memory_topk=2 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --compile=False --out_dir=out-memory-s8-k2 | tee memory_s8_k2.log
+python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=16 --memory_topk=2 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --compile=False --out_dir=out-memory-s16-k2 | tee memory_s16_k2.log
+python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --compile=False --out_dir=out-memory-s32-k4 | tee memory_s32_k4.log
+python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=16 --memory_topk=8 --memory_retrieval_weight=1.0 --log_experiment_metrics=True --compile=False --out_dir=out-memory-s16-k8 | tee memory_s16_k8.log
+```
+
+### Retrieval weight ablations
+
+```bash
+python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=0.5 --log_experiment_metrics=True --compile=False --out_dir=out-memory-s32-k4-w05 | tee memory_s32_k4_w05.log
+python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.5 --log_experiment_metrics=True --compile=False --out_dir=out-memory-s32-k4-w15 | tee memory_s32_k4_w15.log
 ```

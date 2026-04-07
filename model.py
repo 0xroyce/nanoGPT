@@ -256,15 +256,22 @@ class RetrievalMemory(nn.Module):
             raise ValueError("memory_slots must be > 0 when use_retrieval_memory=True")
         if config.memory_topk <= 0:
             raise ValueError("memory_topk must be > 0 when use_retrieval_memory=True")
+        if config.use_persistent_memory and config.memory_slots <= 0:
+            raise ValueError("memory_slots must be > 0 when use_persistent_memory=True")
 
         self.memory_slots = config.memory_slots
         self.memory_topk = config.memory_topk
         self.retrieval_weight = config.memory_retrieval_weight
+        self.use_persistent_memory = config.use_persistent_memory
+        self.persistent_memory_momentum = config.persistent_memory_momentum
         self.query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
+        if self.use_persistent_memory:
+            self.register_buffer("persistent_memory", torch.zeros(config.memory_slots, config.n_embd))
+            self.register_buffer("persistent_memory_valid", torch.tensor(False, dtype=torch.bool))
 
     def _build_memory_slots(self, x):
         # Pool the current sequence into a small number of slots so retrieval stays explicit
@@ -273,9 +280,49 @@ class RetrievalMemory(nn.Module):
         slots = F.adaptive_avg_pool1d(x.transpose(1, 2), num_slots).transpose(1, 2)
         return slots, num_slots
 
+    def _get_memory_candidates(self, local_slots):
+        local_count = local_slots.size(1)
+        if not self.use_persistent_memory or not bool(self.persistent_memory_valid.item()):
+            return local_slots, local_count, 0
+
+        persistent_slots = self.persistent_memory.unsqueeze(0).expand(local_slots.size(0), -1, -1)
+        return torch.cat((local_slots, persistent_slots), dim=1), local_count, persistent_slots.size(1)
+
+    @torch.no_grad()
+    def _update_persistent_memory(self, local_slots):
+        if not self.use_persistent_memory or not self.training:
+            return
+
+        pooled_slots = local_slots.detach().mean(dim=0)
+        if pooled_slots.size(0) < self.persistent_memory.size(0):
+            padded_slots = torch.zeros_like(self.persistent_memory)
+            padded_slots[:pooled_slots.size(0)] = pooled_slots
+            pooled_slots = padded_slots
+        elif pooled_slots.size(0) > self.persistent_memory.size(0):
+            pooled_slots = pooled_slots[:self.persistent_memory.size(0)]
+
+        if not bool(self.persistent_memory_valid.item()):
+            self.persistent_memory.copy_(pooled_slots)
+            self.persistent_memory_valid.fill_(True)
+            return
+
+        self.persistent_memory.mul_(self.persistent_memory_momentum).add_(
+            pooled_slots,
+            alpha=(1.0 - self.persistent_memory_momentum),
+        )
+
+    @torch.no_grad()
+    def reset_memory(self):
+        if not self.use_persistent_memory:
+            return
+        self.persistent_memory.zero_()
+        self.persistent_memory_valid.fill_(False)
+
     def forward(self, x, return_metrics=False):
-        memory_slots, num_slots = self._build_memory_slots(x)
-        topk = min(num_slots, self.memory_topk)
+        local_slots, local_slot_count = self._build_memory_slots(x)
+        memory_slots, local_count, persistent_count = self._get_memory_candidates(local_slots)
+        total_slots = memory_slots.size(1)
+        topk = min(total_slots, self.memory_topk)
 
         q = self.query(x)
         k = self.key(memory_slots)
@@ -291,23 +338,40 @@ class RetrievalMemory(nn.Module):
         )
         retrieved = (retrieved * topk_weights.unsqueeze(-1)).sum(dim=2)
         output = self.dropout(self.proj(retrieved)) * self.retrieval_weight
+        self._update_persistent_memory(local_slots)
 
         if not return_metrics:
             return output
 
-        slot_hits = torch.zeros(x.size(0), num_slots, device=x.device, dtype=x.dtype)
+        slot_hits = torch.zeros(x.size(0), total_slots, device=x.device, dtype=x.dtype)
         slot_hits.scatter_add_(
             1,
             topk_indices.reshape(x.size(0), -1),
             torch.ones(x.size(0), x.size(1) * topk, device=x.device, dtype=x.dtype),
         )
+        local_slot_hits = slot_hits[:, :local_count]
+        persistent_slot_hits = slot_hits[:, local_count:]
+        persistent_retrievals = (topk_indices >= local_count).float()
         metrics = {
-            'memory/active_fraction': torch.tensor(float(topk) / float(num_slots), device=x.device),
+            'memory/active_fraction': torch.tensor(float(topk) / float(total_slots), device=x.device),
             'memory/slot_utilization': (slot_hits > 0).float().mean().detach(),
+            'memory/local_slot_utilization': (local_slot_hits > 0).float().mean().detach(),
             'memory/retrieval_entropy': -(topk_weights * topk_weights.clamp_min(1e-9).log()).sum(dim=-1).mean().detach(),
-            'memory/slots': torch.tensor(float(num_slots), device=x.device),
+            'memory/slots': torch.tensor(float(total_slots), device=x.device),
             'memory/topk': torch.tensor(float(topk), device=x.device),
+            'memory/local_slots': torch.tensor(float(local_count), device=x.device),
+            'memory/persistent_active_fraction': persistent_retrievals.mean().detach(),
+            'memory/persistent_enabled': torch.tensor(1.0 if self.use_persistent_memory else 0.0, device=x.device),
+            'memory/persistent_slots': torch.tensor(float(persistent_count), device=x.device),
+            'memory/persistent_valid': torch.tensor(
+                1.0 if (self.use_persistent_memory and bool(self.persistent_memory_valid.item())) else 0.0,
+                device=x.device,
+            ),
         }
+        if persistent_count > 0:
+            metrics['memory/persistent_slot_utilization'] = (persistent_slot_hits > 0).float().mean().detach()
+        else:
+            metrics['memory/persistent_slot_utilization'] = torch.tensor(0.0, device=x.device)
         return output, metrics
 
 
@@ -359,6 +423,8 @@ class GPTConfig:
     memory_slots: int = 0
     memory_topk: int = 0
     memory_retrieval_weight: float = 1.0
+    use_persistent_memory: bool = False
+    persistent_memory_momentum: float = 0.95
     ffn_mode: str = 'dense'
     num_experts: int = 1
     experts_topk: int = 1
@@ -506,6 +572,11 @@ class GPT(nn.Module):
         for block in self.transformer.h:
             if hasattr(block.attn, 'bias'):
                 block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
+
+    @torch.no_grad()
+    def reset_memory(self):
+        if self.retrieval_memory is not None:
+            self.retrieval_memory.reset_memory()
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
