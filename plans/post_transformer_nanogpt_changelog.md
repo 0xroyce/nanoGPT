@@ -764,6 +764,55 @@ Why this is the next direction:
 - it replaces the failed shared-bank plus uncertain-gate design with a simpler memory interface
 
 
+## Episodic Memory Results
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with warmed stream evaluation
+- the same setup plus per-sequence episodic memory with `episodic_memory_topk=2`
+- the same setup plus per-sequence episodic memory with `episodic_memory_topk=1`
+
+Observed result:
+
+- retrieval plus multi-timescale optimizer groups reached about `3.3602` validation loss at step `2000`
+- episodic memory with `topk=2` reached about `3.3632`
+- episodic memory with `topk=1` regressed to about `3.3903`
+- episodic memory was active and well-populated in both runs
+
+Interpretation:
+
+- the episodic design is much healthier than the old gated external-memory bank
+- it nearly matches the retrieval-only stream baseline, which makes it the first plausible long-timescale memory variant
+- forcing episodic retrieval sharper with `topk=1` did not help, so sharpness alone is not the remaining bottleneck
+
+
+## Retrieval-Conditioned MoE Prototype
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `ffn_router_uses_memory`
+- added `ffn_router_memory_scale`
+- MoE FFN routing can now condition on a detached retrieval-memory hint instead of routing from token activations alone
+- added MoE routing diagnostics:
+  - `moe/router_uses_memory`
+  - `moe/router_hint_norm`
+
+Why this is the next direction:
+
+- retrieval is the strongest validated memory path
+- episodic memory is plausible but not yet winning
+- sparse compute routing is still one of the original core goals and is now being tested on top of the stable retrieval branch
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

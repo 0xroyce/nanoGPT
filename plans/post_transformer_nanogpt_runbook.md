@@ -570,6 +570,33 @@ What to watch:
 - `memory/episodic_slot_utilization`
 - `memory/episodic_retrieval_entropy`
 
+Episodic note:
+
+- `episodic_memory_topk=2` nearly tied the retrieval-only stream baseline
+- `episodic_memory_topk=1` was worse, so sharpness alone is not the next fix
+
+### Retrieval-Conditioned MoE Benchmark
+
+Fresh design hypothesis:
+
+- keep retrieval as the stable memory path
+- route sparse FFN compute using that memory signal instead of gating memory itself
+
+Recommended next benchmark:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --ffn_mode=moe --num_experts=4 --experts_topk=2 --ffn_router_uses_memory=True --ffn_router_memory_scale=1.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-retrieval-moe-stream-2k | tee owt_memory_s32_k4_multiscale_x2_retrieval_moe_stream_2k.log
+```
+
+What to watch:
+
+- `val loss`
+- `moe/router_entropy`
+- `moe/router_hint_norm`
+- `moe/expert_utilization`
+- `ffn/active_fraction`
+- `memory/retrieval_entropy`
+
 Full repo-style GPT-2 reproduction config:
 
 ```bash

@@ -166,7 +166,7 @@ class DenseMLP(nn.Module):
         self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
-    def forward(self, x, return_metrics=False):
+    def forward(self, x, return_metrics=False, router_hint=None):
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
@@ -205,15 +205,25 @@ class MoEFFN(nn.Module):
 
         self.num_experts = config.num_experts
         self.experts_topk = config.experts_topk
+        self.router_uses_memory = config.ffn_router_uses_memory
+        self.router_memory_scale = config.ffn_router_memory_scale
         # The router decides which expert subnetwork each token should activate.
         self.router = nn.Linear(config.n_embd, config.num_experts, bias=config.bias)
+        self.memory_router_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias) if self.router_uses_memory else None
         self.experts = nn.ModuleList([ExpertMLP(config) for _ in range(config.num_experts)])
 
-    def forward(self, x, return_metrics=False):
+    def forward(self, x, return_metrics=False, router_hint=None):
         batch_size, seq_len, hidden_dim = x.shape
         flat_x = x.reshape(batch_size * seq_len, hidden_dim)
 
-        router_logits = self.router(flat_x)
+        router_input = flat_x
+        router_hint_norm = torch.tensor(0.0, device=x.device)
+        if self.router_uses_memory and router_hint is not None:
+            flat_hint = router_hint.reshape(batch_size * seq_len, hidden_dim)
+            router_hint_norm = flat_hint.norm(dim=-1).mean().detach()
+            router_input = router_input + self.memory_router_proj(flat_hint) * self.router_memory_scale
+
+        router_logits = self.router(router_input)
         router_probs = F.softmax(router_logits, dim=-1)
         topk_weights, topk_indices = torch.topk(router_probs, k=self.experts_topk, dim=-1)
         topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
@@ -244,6 +254,8 @@ class MoEFFN(nn.Module):
             'moe/router_entropy': router_entropy.detach(),
             'moe/expert_utilization': (token_expert_load > 0).float().mean().detach(),
             'moe/expert_load_std': normalized_load.std(unbiased=False).detach(),
+            'moe/router_uses_memory': torch.tensor(1.0 if self.router_uses_memory else 0.0, device=x.device),
+            'moe/router_hint_norm': router_hint_norm,
         }
         return output, metrics
 
@@ -276,6 +288,7 @@ class RetrievalMemory(nn.Module):
         self.episodic_memory_topk = config.episodic_memory_topk
         self.episodic_memory_weight = config.episodic_memory_weight
         self.memory_update_during_eval = False
+        self.last_router_hint = None
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.external_router = nn.Linear(config.n_embd, 1, bias=config.bias)
@@ -424,6 +437,7 @@ class RetrievalMemory(nn.Module):
             self.episodic_memory.zero_()
             self.episodic_memory_valid.fill_(False)
             self.episodic_memory_ptr.zero_()
+        self.last_router_hint = None
 
     def set_memory_update_mode(self, enabled):
         self.memory_update_during_eval = bool(enabled)
@@ -564,6 +578,7 @@ class RetrievalMemory(nn.Module):
             episodic_topk = 0
 
         retrieved_context = output
+        self.last_router_hint = retrieved_context.detach()
         output = self.dropout(self.proj(output)) * self.retrieval_weight
         output = output * controller_mask
         self._update_persistent_memory(local_slots)
@@ -742,14 +757,14 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = build_ffn(config)
 
-    def forward(self, x, return_metrics=False):
+    def forward(self, x, return_metrics=False, router_hint=None):
         block_metrics = {}
         attn_out = self.attn(self.ln_1(x), return_metrics=return_metrics)
         if return_metrics:
             attn_out, attn_metrics = attn_out
             block_metrics.update(attn_metrics)
         x = x + attn_out
-        mlp_out = self.mlp(self.ln_2(x), return_metrics=return_metrics)
+        mlp_out = self.mlp(self.ln_2(x), return_metrics=return_metrics, router_hint=router_hint)
         if return_metrics:
             mlp_out, mlp_metrics = mlp_out
             block_metrics.update(mlp_metrics)
@@ -793,6 +808,8 @@ class GPTConfig:
     ffn_mode: str = 'dense'
     num_experts: int = 1
     experts_topk: int = 1
+    ffn_router_uses_memory: bool = False
+    ffn_router_memory_scale: float = 1.0
     use_aux_losses: bool = False
     aux_loss_weights: str = ''
 
@@ -902,6 +919,7 @@ class GPT(nn.Module):
         x = self.transformer.drop(tok_emb + pos_emb)
         memory_metrics = {}
         memory_loss_terms = {}
+        router_hint = None
         if self.retrieval_memory is not None:
             memory_out = self.retrieval_memory(
                 x,
@@ -910,14 +928,15 @@ class GPT(nn.Module):
             )
             if return_info:
                 memory_out, memory_metrics, memory_loss_terms = memory_out
+            router_hint = self.retrieval_memory.last_router_hint
             x = x + memory_out
         block_metrics = []
         for block in self.transformer.h:
             if return_info:
-                x, metrics = block(x, return_metrics=True)
+                x, metrics = block(x, return_metrics=True, router_hint=router_hint)
                 block_metrics.append(metrics)
             else:
-                x = block(x)
+                x = block(x, router_hint=router_hint)
         x = self.transformer.ln_f(x)
 
         if targets is not None:

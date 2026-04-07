@@ -84,6 +84,8 @@ external_lr_scale = 1.0
 ffn_mode = 'dense'
 num_experts = 1
 experts_topk = 1
+ffn_router_uses_memory = False
+ffn_router_memory_scale = 1.0
 use_aux_losses = False
 aux_loss_weights = ''
 batching_mode = 'random'
@@ -306,6 +308,8 @@ model_args = dict(
     ffn_mode=ffn_mode,
     num_experts=num_experts,
     experts_topk=experts_topk,
+    ffn_router_uses_memory=ffn_router_uses_memory,
+    ffn_router_memory_scale=ffn_router_memory_scale,
     use_aux_losses=use_aux_losses,
     aux_loss_weights=aux_loss_weights,
 ) # start with model_args from command line

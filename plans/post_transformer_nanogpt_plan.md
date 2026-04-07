@@ -645,6 +645,18 @@ Fresh design direction:
 - store one compact summary per sequence step rather than top-norm local slots pooled across unrelated batch items
 - remove the failing learned external gate and query episodic memory as a separate low-bandwidth path
 
+Updated read after episodic benchmarks:
+
+- episodic memory `topk=2` almost tied the retrieval-only stream baseline but did not beat it
+- episodic memory `topk=1` got sharper but was worse
+- so the next high-value axis is no longer “yet another memory bank tweak”
+
+Next architectural step:
+
+- keep retrieval as the stable memory path
+- add sparse compute routing whose router can condition on the retrieval signal
+- this targets the original “route computation sparsely” goal without destabilizing the validated retrieval path
+
 
 ## Phase 6.5 - Local Learning Signals
 
