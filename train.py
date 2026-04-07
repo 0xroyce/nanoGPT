@@ -386,10 +386,14 @@ def estimate_loss():
             raw_model.reset_memory()
         if batching_mode == 'stream':
             stream_batchers[split].reset(randomize=False)
+            if hasattr(raw_model, 'set_memory_update_mode'):
+                raw_model.set_memory_update_mode(True)
             for _ in range(stream_eval_warmup_iters):
                 X, Y = get_batch(split)
                 with ctx:
                     model(X, Y, return_info=False)
+            if hasattr(raw_model, 'set_memory_update_mode'):
+                raw_model.set_memory_update_mode(False)
         losses = torch.zeros(eval_iters)
         metric_sums = {}
         for k in range(eval_iters):
@@ -407,6 +411,8 @@ def estimate_loss():
     model.train()
     if hasattr(raw_model, 'reset_memory'):
         raw_model.reset_memory()
+    if hasattr(raw_model, 'set_memory_update_mode'):
+        raw_model.set_memory_update_mode(False)
     if batching_mode == 'stream':
         stream_batchers['train'].reset(randomize=True)
     return out, metric_out

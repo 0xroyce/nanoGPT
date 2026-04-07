@@ -691,6 +691,26 @@ Why this matters:
 - this correction makes stream-mode results a fairer test of retrieval and external memory
 
 
+## Eval-Memory Write Correction
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `set_memory_update_mode()` on the retrieval stack
+- stream-mode eval warmup can now populate persistent or external memory under `torch.no_grad()`
+- scoring still happens in eval mode, but without blocking memory writes during the warmup prefix
+
+Why this matters:
+
+- the first warmed stream external-memory run still showed `memory/external_valid_fraction = 0.0` during eval
+- that meant eval was still not actually measuring external memory use
+- this correction makes the stream external-memory benchmark finally test the intended behavior
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

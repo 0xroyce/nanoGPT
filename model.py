@@ -271,6 +271,7 @@ class RetrievalMemory(nn.Module):
         self.external_memory_writes = config.external_memory_writes
         self.external_memory_weight = config.external_memory_weight
         self.external_memory_fraction = config.external_memory_fraction
+        self.memory_update_during_eval = False
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.external_router = nn.Linear(config.n_embd, 1, bias=config.bias)
@@ -316,7 +317,7 @@ class RetrievalMemory(nn.Module):
 
     @torch.no_grad()
     def _update_persistent_memory(self, local_slots):
-        if not self.use_persistent_memory or not self.training:
+        if not self.use_persistent_memory or not (self.training or self.memory_update_during_eval):
             return
 
         pooled_slots = local_slots.detach().mean(dim=0)
@@ -339,7 +340,7 @@ class RetrievalMemory(nn.Module):
 
     @torch.no_grad()
     def _update_external_memory(self, local_slots):
-        if not self.use_external_memory or not self.training:
+        if not self.use_external_memory or not (self.training or self.memory_update_during_eval):
             return
 
         pooled_slots = local_slots.detach().mean(dim=0)
@@ -368,6 +369,9 @@ class RetrievalMemory(nn.Module):
             self.external_memory.zero_()
             self.external_memory_valid.fill_(False)
             self.external_memory_ptr.zero_()
+
+    def set_memory_update_mode(self, enabled):
+        self.memory_update_during_eval = bool(enabled)
 
     def _retrieve_from_slots(self, q, memory_slots):
         slot_count = memory_slots.size(1)
@@ -847,6 +851,10 @@ class GPT(nn.Module):
     def reset_memory(self):
         if self.retrieval_memory is not None:
             self.retrieval_memory.reset_memory()
+
+    def set_memory_update_mode(self, enabled):
+        if self.retrieval_memory is not None:
+            self.retrieval_memory.set_memory_update_mode(enabled)
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):

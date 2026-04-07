@@ -539,6 +539,11 @@ Warmup note:
 - stream-mode eval should not score the model from an empty memory state
 - use `stream_eval_warmup_iters=16` as the first fair comparison point
 
+Write-mode note:
+
+- stream eval warmup must also be allowed to populate memory buffers
+- if eval metrics still show `memory/external_valid_fraction = 0.0`, the benchmark is not yet measuring real external-memory use
+
 Full repo-style GPT-2 reproduction config:
 
 ```bash

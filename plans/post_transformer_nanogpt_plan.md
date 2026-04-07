@@ -629,6 +629,11 @@ Important harness correction:
 - training should not resume mid-stream after eval with memory reset and stale prefetched batches
 - without these fixes, stream-mode losses overstate how bad the memory model is by scoring it cold
 
+Final eval correction:
+
+- eval warmup must also be allowed to write to memory buffers
+- otherwise external and persistent memory still appear inactive at evaluation time even after warmup
+
 
 ## Phase 6.5 - Local Learning Signals
 
