@@ -31,7 +31,7 @@ How this affects the plan:
 - local learning signals are tracked as a research axis, but not required in the first runnable `nanoGPT` milestones
 - multi-timescale learning should stay in the roadmap even if the first implementation is optimizer-level only
 - naive persistent banks and simple token-level gating are not the current path to the memory/computation split we actually want
-- the current best validated branch is retrieval-first memory plus multi-timescale optimization
+- the current best validated branch is retrieval-first memory plus corrected multi-timescale optimization with `retrieval_lr_scale=8.0`
 
 
 ## North Star
@@ -549,15 +549,78 @@ Success criteria:
 
 Observed result so far:
 
-- `retrieval_lr_scale=2.0` improved the winning retrieval setup on `openwebtext`
-- `retrieval_lr_scale=3.0` was effectively tied with `2.0`
+- the original multiscale optimizer comparisons were partially confounded by a scheduler bug that flattened optimizer-group learning rates each step
+- after fixing that bug and rerunning the stream-eval retrieval benchmark, the validated scale sweep was:
+- `retrieval_lr_scale=2.0` average `3.0962`
+- `retrieval_lr_scale=3.0` average `2.9862`
+- `retrieval_lr_scale=4.0` average `2.8513`
+- `retrieval_lr_scale=5.0` average `2.7950`
+- `retrieval_lr_scale=6.0` average `2.7384`
+- `retrieval_lr_scale=7.0` average `2.6592`
+- `retrieval_lr_scale=8.0` average `2.6077`
+- `retrieval_lr_scale=9.0` average `2.7388`
+- the best single run so far is `retrieval_lr_scale=8.0` at about `2.5789`
+- on the matched corrected `5000` step benchmark, `retrieval_lr_scale=8.0` reached about `1.6362`
+- on the matched corrected `5000` step benchmark, `retrieval_lr_scale=2.0` reached about `2.0121`
+- the long-horizon corrected margin for `x8` over `x2` was about `0.3759`
 
 Phase 6 decision:
 
-- keep `use_multiscale_optim=True` with `retrieval_lr_scale=2.0` as the default for the main branch
-- move next to richer training objectives on top of this stronger baseline
+- keep `use_multiscale_optim=True` with `retrieval_lr_scale=8.0` as the default for the main branch
+- treat `retrieval_lr_scale=9.0` as the current upper plateau boundary rather than the new default
+- use validation loss, not `memory/retrieval_entropy` alone, as the selection metric for this branch
+- treat `x8` as the canonical corrected baseline at both `2k` and `5k`
+- move next to richer objectives or architectural additions on top of this stronger corrected baseline
+- a `5k` retest of soft surprise weighting on top of corrected `x8` regressed from about `1.6362` to about `1.8152`
+- objective shaping is now a trusted negative direction in this harness: hard-token, entropy-only, retrieval-consistency, and surprise-weighted variants all failed to improve the corrected baseline
+- the next branch should return to architectural or memory-system changes instead of further loss shaping
 - do not keep pushing entropy-only retrieval sharpening as the main objective direction
 - retrieval-consistency loss also failed to improve quality, so auxiliary-loss work should pause again
+- after fixing episodic eval warmup to match bank size, episodic memory became the new strongest validated branch
+- corrected episodic `64 slots, topk=2, weight=0.25` reached about `1.2887` and `1.2947` at `5000` steps
+- the replicated episodic average was about `1.2917`, beating the non-episodic corrected `x8` baseline by about `0.3445`
+- lowering `episodic_memory_weight` to `0.125` reached about `1.2887` and `1.2762`
+- the replicated `0.125` average was about `1.2825`, modestly beating the replicated `0.25` average
+- lowering `episodic_memory_weight` further to `0.0625` reached about `1.2817`, essentially tying the replicated `0.125` average but not yet replicated
+- lowering `episodic_memory_weight` further to `0.0625` replicated at about `1.2816`, giving a replicated average of about `1.2817`
+- lowering `episodic_memory_weight` again to `0.03125` regressed to about `1.2995`, so the weight sweep appears to have crossed the floor
+- shrinking `episodic_memory_slots` from `64` to `32` at the winning lightweight setting regressed sharply to about `1.5382`
+- lowering `memory_retrieval_weight` from `1.0` to `0.5` on top of the winning episodic branch regressed sharply to about `1.4106`
+- lowering `retrieval_lr_scale` from `8.0` to `6.0` on top of the winning episodic branch regressed to about `1.3251`
+- lowering `retrieval_lr_scale` from `8.0` to `7.0` on top of the winning episodic branch regressed to about `1.3139`
+- raising `retrieval_lr_scale` from `8.0` to `9.0` on top of the winning episodic branch improved to about `1.2665`
+- replicating episodic `retrieval_lr_scale=9.0` reached about `1.2790`, giving an average of about `1.2728`
+- raising `retrieval_lr_scale` from `9.0` to `10.0` improved further to about `1.2500`
+- replicating episodic `retrieval_lr_scale=10.0` reached about `1.2608`, giving an average of about `1.2554`
+- raising `retrieval_lr_scale` from `10.0` to `11.0` reached about `1.2554`, effectively tying the replicated `x10` average on its first run
+- replicating episodic `retrieval_lr_scale=11.0` reached about `1.2520`, giving an average of about `1.2537`
+- raising `retrieval_lr_scale` from `11.0` to `12.0` improved further to about `1.2392`
+- replicating episodic `retrieval_lr_scale=12.0` reached about `1.2370`, giving an average of about `1.2381`
+- raising `retrieval_lr_scale` from `12.0` to `15.0` improved further to about `1.2200`
+- replicating episodic `retrieval_lr_scale=15.0` reached about `1.2218`, giving an average of about `1.2209`
+- replicating episodic `retrieval_lr_scale=15.0` a third time reached about `1.2233`, giving a 3-run average of about `1.2217`
+- raising `retrieval_lr_scale` from `15.0` to `16.0` regressed sharply to about `1.2484`
+- raising `retrieval_lr_scale` from `15.0` to `18.0` regressed to about `1.2344`
+- raising `retrieval_lr_scale` from `15.0` to `20.0` regressed to about `1.2316`
+- increasing `episodic_memory_weight` from `0.25` to `0.5` regressed slightly to about `1.3032`
+- increasing episodic capacity to `128` slots also regressed slightly to about `1.3112`, with slot utilization dropping to about `0.19`
+- increasing episodic `topk` to `4` regressed further to about `1.3412`, while episodic entropy rose to about `ln(4)` and local retrieval entropy dropped to about `0.11`
+- `episodic_memory_topk=2` remains the best validated read pattern, and `episodic_memory_weight=0.0625` is now the clear episodic winner from the weight sweep
+- full local retrieval strength should remain fixed at `memory_retrieval_weight=1.0`
+- `episodic_memory_slots=64` also appears locked in
+- `retrieval_lr_scale=10.0` is now the best validated optimizer scale on the episodic branch, with a replicated average of about `1.2554`
+- the replicated `x10` average beats the replicated `x9` average by about `0.0174`
+- `retrieval_lr_scale=11.0` is now the best replicated average on the episodic branch at about `1.2537`, but it only beats validated `x10` by about `0.0017`
+- `x10` and `x11` therefore look like a practical plateau rather than a decisive new phase change
+- `retrieval_lr_scale=12.0` is now the best validated optimizer scale on the episodic branch, with a replicated average of about `1.2381`
+- the replicated `x12` average beats the replicated `x11` average by about `0.0156`, which confirms the optimizer scale sweep resumed improving
+- `retrieval_lr_scale=15.0` is now the best validated optimizer scale on the episodic branch, with a 3-run average of about `1.2217`
+- the 3-run `x15` average beats the replicated `x12` average by about `0.0164`, so the trend improved materially through the final winner
+- `retrieval_lr_scale=16.0` regressed to about `1.2484`, which is about `0.0267` worse than the 3-run `x15` average
+- `retrieval_lr_scale=18.0` regressed to about `1.2344`, so moving above `15.0` by that much looks worse, not better
+- `retrieval_lr_scale=20.0` regressed to about `1.2316`, so the coarse upward sweep appears to have overshot the best region
+- the optimizer-scale sweep now looks complete, with `15.0` as the best validated point and `16.0`, `18.0`, and `20.0` all worse
+- the third `x15` replicate landed in-family, so the next experiment should move to a different axis rather than spend more budget on this sweep
 
 
 ## Phase 6.5 - External Memory Interface

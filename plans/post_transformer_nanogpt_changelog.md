@@ -443,7 +443,7 @@ Interpretation:
 - retrieval-only remains the clear main branch
 
 
-## Multi-Timescale Retrieval Result
+## Multi-Timescale Retrieval Result (Pre-Correction, Superseded)
 
 Dataset used:
 
@@ -466,8 +466,8 @@ Observed result:
 Interpretation:
 
 - multi-timescale learning improved the winning retrieval branch without breaking its retrieval dynamics
-- `retrieval_lr_scale=2.0` is the current safest best default
-- tiny scale sweeps beyond that should be lower priority than moving to richer objectives
+- this section is historically useful, but it was later superseded by the scheduler-fix reruns below
+- do not use `retrieval_lr_scale=2.0` from this section as the current default
 
 
 ## Entropy-Only Auxiliary-Loss Result
@@ -1036,6 +1036,165 @@ Why this matters:
 - the previous multiscale optimizer setup was being partially neutralized by the per-step LR assignment
 - prior `use_multiscale_optim=True` results should be treated as provisional until rerun under the corrected scheduler
 - the next trustworthy comparison is a corrected multiscale retrieval baseline, followed by retrieval-LR warmup ablations
+
+
+## Corrected Retrieval LR Scale Sweep
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- corrected multiscale retrieval baseline with `retrieval_lr_scale=2.0`
+- corrected retrieval scale sweep through `retrieval_lr_scale=9.0`
+
+Observed result:
+
+- corrected `retrieval_lr_scale=2.0` average: about `3.0962`
+- corrected `retrieval_lr_scale=3.0` average: about `2.9862`
+- corrected `retrieval_lr_scale=4.0` average: about `2.8513`
+- corrected `retrieval_lr_scale=5.0` average: about `2.7950`
+- corrected `retrieval_lr_scale=6.0` average: about `2.7384`
+- corrected `retrieval_lr_scale=7.0` average: about `2.6592`
+- corrected `retrieval_lr_scale=8.0` average: about `2.6077`
+- corrected `retrieval_lr_scale=9.0` average: about `2.7388`
+- best single run so far: corrected `retrieval_lr_scale=8.0` at about `2.5789`
+
+Interpretation:
+
+- once the optimizer-group scheduler bug was fixed, optimizer-side timescale separation became the strongest validated improvement in the project
+- the best current default for the retrieval-first branch is `use_multiscale_optim=True` with `retrieval_lr_scale=8.0`
+- the upward LR-scale sweep appears to plateau by `8-9`, with `9.0` regressing on average
+- `memory/retrieval_entropy` varied across both strong and weak runs, so validation loss remains the reliable model-selection metric
+
+
+## Corrected Long-Horizon Validation Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- corrected multiscale retrieval baseline with `retrieval_lr_scale=8.0` at `5000` steps
+- corrected multiscale retrieval baseline with `retrieval_lr_scale=2.0` at `5000` steps
+
+Observed result:
+
+- corrected `x8` reached about `1.6362` validation loss at step `5000`
+- corrected `x2` reached about `2.0121` validation loss at step `5000`
+- corrected `x8` beat corrected `x2` by about `0.3759`
+- corrected `x8` maintained fully active retrieval with high slot utilization through the longer run
+
+Interpretation:
+
+- the optimizer-side retrieval timescale gain did not wash out with longer training
+- `retrieval_lr_scale=8.0` should be treated as the canonical corrected retrieval-first baseline
+- the next experiment branch should build on this baseline instead of reopening the LR-scale sweep
+
+
+## Surprise-Weighted Objective Retest Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- corrected canonical retrieval baseline with `retrieval_lr_scale=8.0` at `5000` steps
+- the same baseline plus `use_surprise_weighted_objective=True`
+
+Observed result:
+
+- corrected `x8` baseline reached about `1.6362` validation loss at step `5000`
+- corrected `x8` plus surprise weighting regressed to about `1.8152` validation loss at step `5000`
+- the regression was about `0.1790`
+- training objective loss became much larger than raw LM loss late in training, while evaluation still reported full-token loss with surprise strength disabled
+
+Interpretation:
+
+- soft surprise weighting is now a trusted negative result even on the strongest corrected retrieval baseline
+- the issue looks objective-level rather than retrieval collapse, because retrieval remained healthy while validation loss worsened
+- future work should stop changing the token-level objective and return to architectural or memory-interface experiments
+
+
+## Corrected Episodic Promotion Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- corrected canonical non-episodic retrieval baseline at `5000` steps
+- corrected episodic retrieval with `episodic_memory_slots=64`, `episodic_memory_topk=2`, `episodic_memory_weight=0.25`
+- the same episodic setup replicated
+- episodic weight retest at `episodic_memory_weight=0.5`
+
+Observed result:
+
+- corrected non-episodic `x8` baseline reached about `1.6362`
+- episodic `warm64` reached about `1.2887`
+- episodic `warm64 b` reached about `1.2947`
+- episodic `weight=0.25` average was about `1.2917`
+- episodic `weight=0.125` reached about `1.2887`
+- episodic `weight=0.125 b` reached about `1.2762`
+- episodic `weight=0.125` average was about `1.2825`
+- episodic `weight=0.0625` reached about `1.2817`
+- episodic `weight=0.0625 b` reached about `1.2816`
+- episodic `weight=0.0625` average was about `1.2817`
+- episodic `weight=0.03125` regressed to about `1.2995`
+- shrinking the episodic bank to `32` slots at the winning lightweight setting regressed sharply to about `1.5382`
+- lowering `memory_retrieval_weight` to `0.5` on the winning episodic branch regressed sharply to about `1.4106`
+- lowering `retrieval_lr_scale` to `6.0` on the winning episodic branch regressed to about `1.3251`
+- lowering `retrieval_lr_scale` to `7.0` on the winning episodic branch regressed to about `1.3139`
+- raising `retrieval_lr_scale` to `9.0` on the winning episodic branch improved to about `1.2665`
+- episodic `retrieval_lr_scale=9.0 b` reached about `1.2790`
+- episodic `retrieval_lr_scale=9.0` average was about `1.2728`
+- raising `retrieval_lr_scale` to `10.0` on the winning episodic branch improved further to about `1.2500`
+- episodic `retrieval_lr_scale=10.0 b` reached about `1.2608`
+- episodic `retrieval_lr_scale=10.0` average was about `1.2554`
+- episodic `retrieval_lr_scale=11.0` reached about `1.2554`
+- episodic `retrieval_lr_scale=11.0 b` reached about `1.2520`
+- episodic `retrieval_lr_scale=11.0` average was about `1.2537`
+- episodic `retrieval_lr_scale=12.0` reached about `1.2392`
+- episodic `retrieval_lr_scale=12.0 b` reached about `1.2370`
+- episodic `retrieval_lr_scale=12.0` average was about `1.2381`
+- episodic `retrieval_lr_scale=15.0` reached about `1.2200`
+- episodic `retrieval_lr_scale=15.0 b` reached about `1.2218`
+- episodic `retrieval_lr_scale=15.0 c` reached about `1.2233`
+- episodic `retrieval_lr_scale=15.0` 3-run average was about `1.2217`
+- episodic `retrieval_lr_scale=16.0` regressed to about `1.2484`
+- episodic `retrieval_lr_scale=18.0` regressed to about `1.2344`
+- episodic `retrieval_lr_scale=20.0` regressed to about `1.2316`
+- episodic `weight=0.5` regressed slightly to about `1.3032`
+- episodic `slots=128, topk=2, weight=0.25` regressed slightly to about `1.3112`
+- episodic `slots=64, topk=4, weight=0.25` regressed further to about `1.3412`
+- episodic eval became fair only after matching `stream_eval_warmup_iters` to episodic slot count
+
+Interpretation:
+
+- episodic memory is now the leading validated architectural branch in the repo
+- the win is large and replicated, so it should replace the plain corrected `x8` branch as the main baseline
+- `episodic_memory_weight=0.0625` is now the best validated setting so far
+- reducing episodic weight below `0.0625` hurt quality, so the weight sweep appears to have found its floor
+- shrinking the episodic bank below `64` slots also hurt badly, so `episodic_memory_slots=64` should remain fixed
+- lowering local retrieval strength also hurt badly, so `memory_retrieval_weight=1.0` should remain fixed
+- lowering retrieval optimizer scale to `6.0` and `7.0` hurt, while raising it to `9.0` improved to about `1.2665`
+- `retrieval_lr_scale=9.0` is now the best validated setting on the episodic branch, with a replicated average of about `1.2728`
+- `retrieval_lr_scale=10.0` is now the best validated setting on the episodic branch, with a replicated average of about `1.2554`
+- `retrieval_lr_scale=11.0` is now the best replicated average on the episodic branch at about `1.2537`, but only by a tiny margin over `x10`
+- `retrieval_lr_scale=12.0` is now the best validated setting on the episodic branch, with a replicated average of about `1.2381`
+- the replicated `x12` average beats the replicated `x11` average by about `0.0156`, which confirms the apparent `x10-x11` plateau broke upward
+- `retrieval_lr_scale=15.0` is now the best validated setting on the episodic branch, with a 3-run average of about `1.2217`
+- the 3-run `x15` average beats the replicated `x12` average by about `0.0164`, which confirms the upward optimizer sweep stayed alive through the eventual winner
+- `retrieval_lr_scale=16.0` regressed to about `1.2484`, about `0.0267` worse than the 3-run `x15` average
+- `retrieval_lr_scale=18.0` regressed to about `1.2344`, about `0.0127` worse than the 3-run `x15` average
+- `retrieval_lr_scale=20.0` regressed to about `1.2316`, about `0.0099` worse than the 3-run `x15` average, so the coarse sweep has likely overshot the best region
+- increasing episodic capacity beyond `64` slots did not help, and broadening episodic reads to `topk=4` also hurt quality
+- `retrieval_lr_scale=15.0` now looks like the decisive local optimum for this sweep, with `16.0`, `18.0`, and `20.0` all clearly worse
+- the third `x15` replicate landed in-family, so the next clean step should freeze `retrieval_lr_scale=15.0` and move to a new axis
 
 
 ## Phase 1 Benchmark Result

@@ -699,41 +699,205 @@ Important implementation note:
 
 ### Corrected Multiscale Baseline
 
-Recommended first rerun:
+Historical first rerun:
 
 ```bash
 python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-corrected-stream-2k | tee owt_memory_s32_k4_multiscale_x2_corrected_stream_2k.log
 ```
 
-What to watch:
-
-- `val loss`
-- `memory/retrieval_entropy`
-- `optimizer/retrieval_lr_scale`
-- `mfu`
+This rerun is now complete and should be treated as the start of the corrected sweep, not the current recommended default.
 
 ### Retrieval LR Warmup Benchmark
 
-Fresh design hypothesis:
+Historical design hypothesis:
 
 - keep retrieval fully active from the start
 - preserve true multiscale optimizer group ratios during training
 - ramp the retrieval optimizer scale from `1.0` up to the configured `retrieval_lr_scale`
 
-Recommended next benchmark:
+Historical benchmark:
 
 ```bash
 python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --retrieval_lr_scale_warmup_iters=100 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-retrieval-lr-warmup100-stream-2k | tee owt_memory_s32_k4_multiscale_x2_retrieval_lr_warmup100_stream_2k.log
 ```
 
+Outcome:
+
+- retrieval-LR warmup did not improve over the corrected multiscale baseline
+- the useful axis was the retrieval LR scale itself, not warming it up
+
+### Corrected Retrieval LR Scale Sweep
+
+Validated stream-eval sweep summary:
+
+- `retrieval_lr_scale=2.0` average `3.0962`
+- `retrieval_lr_scale=3.0` average `2.9862`
+- `retrieval_lr_scale=4.0` average `2.8513`
+- `retrieval_lr_scale=5.0` average `2.7950`
+- `retrieval_lr_scale=6.0` average `2.7384`
+- `retrieval_lr_scale=7.0` average `2.6592`
+- `retrieval_lr_scale=8.0` average `2.6077`
+- `retrieval_lr_scale=9.0` average `2.7388`
+
+Current read:
+
+- `retrieval_lr_scale=8.0` is the best validated setting so far
+- `retrieval_lr_scale=9.0` regressed on average, so the upward sweep should pause there
+- `memory/retrieval_entropy` moved substantially across good and bad runs and should not be used as the primary selection metric
+
+### Current Recommended Retrieval Baseline
+
+Use this as the short corrected comparison baseline for follow-on experiments:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=8.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x8-corrected-stream-2k | tee owt_memory_s32_k4_multiscale_x8_corrected_stream_2k.log
+```
+
 What to watch:
 
 - `val loss`
-- `loss_terms lm_loss`
 - `optimizer/retrieval_lr_scale`
-- `memory/retrieval_entropy`
-- `memory/local_slot_utilization`
+- `loss_terms lm_loss`
 - `mfu`
+- `memory/local_slot_utilization`
+
+### Canonical Long-Horizon Retrieval Baseline
+
+Historical non-episodic long-horizon baseline:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=5000 --lr_decay_iters=5000 --warmup_iters=100 --eval_interval=500 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=8.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x8-corrected-stream-5k | tee owt_memory_s32_k4_multiscale_x8_corrected_stream_5k.log
+```
+
+Validated long-horizon comparison:
+
+- corrected `x8` reached about `1.6362` validation loss at step `5000`
+- corrected `x2` reached about `2.0121` validation loss at step `5000`
+- `retrieval_lr_scale=8.0` beat corrected `x2` by about `0.3759`
+
+Current read:
+
+- the optimizer-side retrieval timescale win persists at `5000` steps
+- `retrieval_lr_scale=8.0` should now be treated as the canonical corrected baseline
+- `memory/retrieval_entropy` still is not a standalone selection metric
+
+### Canonical Long-Horizon Episodic Baseline
+
+Use this as the new main long-horizon baseline for follow-on experiments:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=5000 --lr_decay_iters=5000 --warmup_iters=100 --eval_interval=500 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=64 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=8.0 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.25 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x8-episodic-stream-warm64-5k | tee owt_memory_s32_k4_multiscale_x8_episodic_stream_warm64_5k.log
+```
+
+Validated long-horizon episodic comparison:
+
+- corrected non-episodic `x8` baseline reached about `1.6362`
+- episodic `warm64` reached about `1.2887`
+- episodic `warm64 b` reached about `1.2947`
+- episodic `weight=0.25` average was about `1.2917`
+- episodic `weight=0.125` reached about `1.2887`
+- episodic `weight=0.125 b` reached about `1.2762`
+- episodic `weight=0.125` average is about `1.2825`
+- episodic `weight=0.0625` reached about `1.2817`
+- episodic `weight=0.0625 b` reached about `1.2816`
+- episodic `weight=0.0625` average is about `1.2817`
+- episodic `weight=0.03125` regressed to about `1.2995`
+- shrinking the episodic bank to `32` slots at `weight=0.0625` regressed sharply to about `1.5382`
+- lowering `memory_retrieval_weight` to `0.5` on the winning episodic branch regressed sharply to about `1.4106`
+- lowering `retrieval_lr_scale` from `8.0` to `6.0` on the winning episodic branch regressed to about `1.3251`
+- lowering `retrieval_lr_scale` from `8.0` to `7.0` on the winning episodic branch regressed to about `1.3139`
+- raising `retrieval_lr_scale` from `8.0` to `9.0` on the winning episodic branch improved to about `1.2665`
+- episodic `retrieval_lr_scale=9.0 b` reached about `1.2790`
+- episodic `retrieval_lr_scale=9.0` average is about `1.2728`
+- raising `retrieval_lr_scale` from `9.0` to `10.0` improved further to about `1.2500`
+- episodic `retrieval_lr_scale=10.0 b` reached about `1.2608`
+- episodic `retrieval_lr_scale=10.0` average is about `1.2554`
+- episodic `retrieval_lr_scale=11.0` reached about `1.2554`
+- episodic `retrieval_lr_scale=11.0 b` reached about `1.2520`
+- episodic `retrieval_lr_scale=11.0` average is about `1.2537`
+- episodic `retrieval_lr_scale=12.0` reached about `1.2392`
+- episodic `retrieval_lr_scale=12.0 b` reached about `1.2370`
+- episodic `retrieval_lr_scale=12.0` average is about `1.2381`
+- episodic `retrieval_lr_scale=15.0` reached about `1.2200`
+- episodic `retrieval_lr_scale=15.0 b` reached about `1.2218`
+- episodic `retrieval_lr_scale=15.0 c` reached about `1.2233`
+- episodic `retrieval_lr_scale=15.0` 3-run average is about `1.2217`
+- episodic `retrieval_lr_scale=16.0` regressed further to about `1.2484`
+- episodic `retrieval_lr_scale=18.0` regressed to about `1.2344`
+- episodic `retrieval_lr_scale=20.0` regressed to about `1.2316`
+- episodic `weight=0.5` regressed slightly to about `1.3032`
+- episodic `slots=128, topk=2, weight=0.25` also regressed slightly to about `1.3112`
+- episodic `slots=64, topk=4, weight=0.25` regressed further to about `1.3412`
+
+Current read:
+
+- episodic memory is now the leading validated architectural branch in the project
+- the eval warmup was the key fairness fix; `stream_eval_warmup_iters=64` is required for the 64-slot episodic bank
+- `episodic_memory_weight=0.0625` is now the best validated setting so far
+- the replicated `0.0625` average is about `1.2817`, narrowly beating the replicated `0.125` average of about `1.2825`
+- reducing episodic weight below `0.0625` hurt quality, so the current sweep appears to have crossed the floor
+- shrinking the episodic bank below `64` slots also hurt badly, so `episodic_memory_slots=64` should remain fixed
+- lowering `memory_retrieval_weight` below `1.0` also hurt badly, so full local retrieval strength should remain fixed
+- lowering `retrieval_lr_scale` to `6.0` and `7.0` hurt, while raising it to `9.0` improved to about `1.2665`
+- `retrieval_lr_scale=9.0` is now the best validated optimizer setting on the episodic branch, with a replicated average of about `1.2728`
+- the replicated `x9` average beats the replicated `x8` average of about `1.2817` by about `0.0089`
+- `retrieval_lr_scale=10.0` is now the best validated optimizer setting on the episodic branch, with a replicated average of about `1.2554`
+- the replicated `x10` average beats the replicated `x9` average by about `0.0174`
+- `retrieval_lr_scale=11.0` is now the best replicated average on the episodic branch at about `1.2537`, but it only beats validated `x10` by about `0.0017`
+- that margin is tiny enough that `x10` and `x11` should be treated as a practical plateau until a larger separation appears
+- `retrieval_lr_scale=12.0` is now the best validated optimizer setting on the episodic branch, with a replicated average of about `1.2381`
+- the replicated `x12` average beats the replicated `x11` average by about `0.0156`, which confirms that the apparent `x10-x11` plateau broke upward
+- `retrieval_lr_scale=15.0` is now the best validated optimizer setting on the episodic branch, with a 3-run average of about `1.2217`
+- the 3-run `x15` average beats the replicated `x12` average by about `0.0164`, which confirms the optimizer scale sweep improved materially through `15.0`
+- `retrieval_lr_scale=16.0` regressed to about `1.2484`, which is about `0.0267` worse than the 3-run `x15` average
+- `retrieval_lr_scale=18.0` regressed to about `1.2344`, which is about `0.0127` worse than the 3-run `x15` average
+- `retrieval_lr_scale=20.0` regressed to about `1.2316`, which is about `0.0099` worse than the 3-run `x15` average
+- the sweep now looks decisively peaked at `15.0`, with `16.0`, `18.0`, and `20.0` all landing on the worse side of that peak
+- increasing episodic capacity beyond `64` slots reduced slot utilization and did not improve quality
+- broadening episodic reads to `topk=4` also hurt quality, so `episodic_memory_topk=2` remains the best validated read pattern
+
+### Next Recommended Episodic Sweep
+
+The retrieval optimizer scale sweep now looks finished. The cleanest next move is to freeze `retrieval_lr_scale=15.0` as the winning setting on this branch and shift to a new axis rather than keep probing to the right.
+
+The third replicate has now landed in-family, so extra optimizer-scale confirmation is no longer necessary unless variance measurement itself is the goal.
+
+What to watch on this branch:
+
+- `step 5000: val loss`
+- `memory/episodic_valid_fraction`
+- `memory/episodic_slot_utilization`
+- `memory/episodic_retrieval_entropy`
+- `memory/retrieval_entropy`
+
+### Surprise-Weighted Objective Retest
+
+Historical retest on top of the validated `x8` long-horizon baseline:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=5000 --lr_decay_iters=5000 --warmup_iters=100 --eval_interval=500 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=8.0 --use_surprise_weighted_objective=True --surprise_weight_power=1.0 --surprise_weight_cap=2.0 --surprise_weight_warmup_iters=500 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x8-surprise-stream-5k | tee owt_memory_s32_k4_multiscale_x8_surprise_stream_5k.log
+```
+
+What to watch on this branch:
+
+- `step 5000: val loss`
+- `loss_terms objective_lm_loss`
+- `objective/surprise_weight_strength`
+- `objective/surprise_weight_mean`
+- `objective/surprise_weight_max`
+
+Outcome:
+
+- corrected `x8` baseline reached about `1.6362` validation loss at step `5000`
+- corrected `x8` plus surprise weighting regressed to about `1.8152` validation loss at step `5000`
+- this was a regression of about `0.1790`
+- evaluation still reported the full-token loss with `objective/surprise_weight_strength=0.0`, so this comparison stayed apples-to-apples
+
+Current read:
+
+- surprise weighting is now a trusted negative result on both the earlier weaker baseline and the canonical corrected `x8` baseline
+- binary hard-token selection and soft surprise weighting should both be deprioritized
+- the next branch should stop changing the loss and return to architectural or memory-system changes
 
 Full repo-style GPT-2 reproduction config:
 
