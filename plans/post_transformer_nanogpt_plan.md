@@ -599,6 +599,7 @@ Phase 6 decision:
 - raising `retrieval_lr_scale` from `12.0` to `15.0` improved further to about `1.2200`
 - replicating episodic `retrieval_lr_scale=15.0` reached about `1.2218`, giving an average of about `1.2209`
 - replicating episodic `retrieval_lr_scale=15.0` a third time reached about `1.2233`, giving a 3-run average of about `1.2217`
+- replicating episodic `retrieval_lr_scale=15.0` a fourth time reached about `1.2116`, giving a 4-run average of about `1.2192`
 - raising `retrieval_lr_scale` from `15.0` to `16.0` regressed sharply to about `1.2484`
 - raising `retrieval_lr_scale` from `15.0` to `18.0` regressed to about `1.2344`
 - raising `retrieval_lr_scale` from `15.0` to `20.0` regressed to about `1.2316`
@@ -614,9 +615,10 @@ Phase 6 decision:
 - `x10` and `x11` therefore look like a practical plateau rather than a decisive new phase change
 - `retrieval_lr_scale=12.0` is now the best validated optimizer scale on the episodic branch, with a replicated average of about `1.2381`
 - the replicated `x12` average beats the replicated `x11` average by about `0.0156`, which confirms the optimizer scale sweep resumed improving
-- `retrieval_lr_scale=15.0` is now the best validated optimizer scale on the episodic branch, with a 3-run average of about `1.2217`
-- the 3-run `x15` average beats the replicated `x12` average by about `0.0164`, so the trend improved materially through the final winner
-- `retrieval_lr_scale=16.0` regressed to about `1.2484`, which is about `0.0267` worse than the 3-run `x15` average
+- `retrieval_lr_scale=15.0` is now the best validated optimizer scale on the episodic branch, with a 4-run average of about `1.2192`
+- the 4-run `x15` average beats the replicated `x12` average by about `0.0189`, so the trend improved materially through the final winner
+- the newest `x15` replicate at `1.2116` is also the strongest single `5000`-step result on the branch so far
+- `retrieval_lr_scale=16.0` regressed to about `1.2484`, which is about `0.0292` worse than the 4-run `x15` average
 - `retrieval_lr_scale=18.0` regressed to about `1.2344`, so moving above `15.0` by that much looks worse, not better
 - `retrieval_lr_scale=20.0` regressed to about `1.2316`, so the coarse upward sweep appears to have overshot the best region
 - the optimizer-scale sweep now looks complete, with `15.0` as the best validated point and `16.0`, `18.0`, and `20.0` all worse

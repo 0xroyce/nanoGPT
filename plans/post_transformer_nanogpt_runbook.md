@@ -825,7 +825,8 @@ Validated long-horizon episodic comparison:
 - episodic `retrieval_lr_scale=15.0` reached about `1.2200`
 - episodic `retrieval_lr_scale=15.0 b` reached about `1.2218`
 - episodic `retrieval_lr_scale=15.0 c` reached about `1.2233`
-- episodic `retrieval_lr_scale=15.0` 3-run average is about `1.2217`
+- episodic `retrieval_lr_scale=15.0 d` reached about `1.2116`
+- episodic `retrieval_lr_scale=15.0` 4-run average is about `1.2192`
 - episodic `retrieval_lr_scale=16.0` regressed further to about `1.2484`
 - episodic `retrieval_lr_scale=18.0` regressed to about `1.2344`
 - episodic `retrieval_lr_scale=20.0` regressed to about `1.2316`
@@ -851,11 +852,12 @@ Current read:
 - that margin is tiny enough that `x10` and `x11` should be treated as a practical plateau until a larger separation appears
 - `retrieval_lr_scale=12.0` is now the best validated optimizer setting on the episodic branch, with a replicated average of about `1.2381`
 - the replicated `x12` average beats the replicated `x11` average by about `0.0156`, which confirms that the apparent `x10-x11` plateau broke upward
-- `retrieval_lr_scale=15.0` is now the best validated optimizer setting on the episodic branch, with a 3-run average of about `1.2217`
-- the 3-run `x15` average beats the replicated `x12` average by about `0.0164`, which confirms the optimizer scale sweep improved materially through `15.0`
-- `retrieval_lr_scale=16.0` regressed to about `1.2484`, which is about `0.0267` worse than the 3-run `x15` average
-- `retrieval_lr_scale=18.0` regressed to about `1.2344`, which is about `0.0127` worse than the 3-run `x15` average
-- `retrieval_lr_scale=20.0` regressed to about `1.2316`, which is about `0.0099` worse than the 3-run `x15` average
+- `retrieval_lr_scale=15.0` is now the best validated optimizer setting on the episodic branch, with a 4-run average of about `1.2192`
+- the 4-run `x15` average beats the replicated `x12` average by about `0.0189`, which confirms the optimizer scale sweep improved materially through `15.0`
+- the newest `x15` replicate at `1.2116` is also the strongest single `5000`-step result on the branch so far
+- `retrieval_lr_scale=16.0` regressed to about `1.2484`, which is about `0.0292` worse than the 4-run `x15` average
+- `retrieval_lr_scale=18.0` regressed to about `1.2344`, which is about `0.0152` worse than the 4-run `x15` average
+- `retrieval_lr_scale=20.0` regressed to about `1.2316`, which is about `0.0124` worse than the 4-run `x15` average
 - the sweep now looks decisively peaked at `15.0`, with `16.0`, `18.0`, and `20.0` all landing on the worse side of that peak
 - increasing episodic capacity beyond `64` slots reduced slot utilization and did not improve quality
 - broadening episodic reads to `topk=4` also hurt quality, so `episodic_memory_topk=2` remains the best validated read pattern
@@ -864,7 +866,7 @@ Current read:
 
 The retrieval optimizer scale sweep now looks finished. The cleanest next move is to freeze `retrieval_lr_scale=15.0` as the winning setting on this branch and shift to a new axis rather than keep probing to the right.
 
-The third replicate has now landed in-family, so extra optimizer-scale confirmation is no longer necessary unless variance measurement itself is the goal.
+Four full-length replicates have now landed in-family, so extra optimizer-scale confirmation is no longer necessary unless variance measurement itself is the goal.
 
 What to watch on this branch:
 

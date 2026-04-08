@@ -901,7 +901,7 @@ Compared runs:
 
 Observed result:
 
-- the locked episodic winner reached about `1.2217` on the full `5000` step sweep and serves as the current strongest branch
+- the locked episodic winner reached a new best single `5000`-step result of about `1.2116`, bringing the 4-run `x15` average to about `1.2192`
 - the token-routed episodic retest reached about `2.2950` validation loss at step `2000`
 - `ffn/active_fraction` stayed fixed at `0.5000`
 - `token_router/gate_mean` stayed around `0.64`
@@ -1232,7 +1232,8 @@ Observed result:
 - episodic `retrieval_lr_scale=15.0` reached about `1.2200`
 - episodic `retrieval_lr_scale=15.0 b` reached about `1.2218`
 - episodic `retrieval_lr_scale=15.0 c` reached about `1.2233`
-- episodic `retrieval_lr_scale=15.0` 3-run average was about `1.2217`
+- episodic `retrieval_lr_scale=15.0 d` reached about `1.2116`
+- episodic `retrieval_lr_scale=15.0` 4-run average was about `1.2192`
 - episodic `retrieval_lr_scale=16.0` regressed to about `1.2484`
 - episodic `retrieval_lr_scale=18.0` regressed to about `1.2344`
 - episodic `retrieval_lr_scale=20.0` regressed to about `1.2316`
@@ -1255,11 +1256,12 @@ Interpretation:
 - `retrieval_lr_scale=11.0` is now the best replicated average on the episodic branch at about `1.2537`, but only by a tiny margin over `x10`
 - `retrieval_lr_scale=12.0` is now the best validated setting on the episodic branch, with a replicated average of about `1.2381`
 - the replicated `x12` average beats the replicated `x11` average by about `0.0156`, which confirms the apparent `x10-x11` plateau broke upward
-- `retrieval_lr_scale=15.0` is now the best validated setting on the episodic branch, with a 3-run average of about `1.2217`
-- the 3-run `x15` average beats the replicated `x12` average by about `0.0164`, which confirms the upward optimizer sweep stayed alive through the eventual winner
-- `retrieval_lr_scale=16.0` regressed to about `1.2484`, about `0.0267` worse than the 3-run `x15` average
-- `retrieval_lr_scale=18.0` regressed to about `1.2344`, about `0.0127` worse than the 3-run `x15` average
-- `retrieval_lr_scale=20.0` regressed to about `1.2316`, about `0.0099` worse than the 3-run `x15` average, so the coarse sweep has likely overshot the best region
+- `retrieval_lr_scale=15.0` is now the best validated setting on the episodic branch, with a 4-run average of about `1.2192`
+- the 4-run `x15` average beats the replicated `x12` average by about `0.0189`, which confirms the upward optimizer sweep stayed alive through the eventual winner
+- the newest `x15` replicate at `1.2116` is the strongest single `5000`-step result on the branch so far
+- `retrieval_lr_scale=16.0` regressed to about `1.2484`, about `0.0292` worse than the 4-run `x15` average
+- `retrieval_lr_scale=18.0` regressed to about `1.2344`, about `0.0152` worse than the 4-run `x15` average
+- `retrieval_lr_scale=20.0` regressed to about `1.2316`, about `0.0124` worse than the 4-run `x15` average, so the coarse sweep has likely overshot the best region
 - increasing episodic capacity beyond `64` slots did not help, and broadening episodic reads to `topk=4` also hurt quality
 - `retrieval_lr_scale=15.0` now looks like the decisive local optimum for this sweep, with `16.0`, `18.0`, and `20.0` all clearly worse
 - the third `x15` replicate landed in-family, so the next clean step should freeze `retrieval_lr_scale=15.0` and move to a new axis
