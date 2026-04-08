@@ -737,13 +737,21 @@ Updated read after token-routed FFN benchmarks:
 
 - subtractive token routing was a trusted negative result even after fixing an initial router-training bug
 - cutting baseline FFN compute for half the tokens damaged the retrieval system itself instead of helping
+- retesting the same idea on the strongest episodic branch still regressed badly, reaching about `2.2950` validation loss at step `2000`
+- retrieval remained healthy in that retest, so the failure now looks decisively like a sparse-compute quality loss rather than a memory-training artifact
 - the next step should not remove core compute from the winning branch
 
 Next architectural step revision:
 
-- keep retrieval plus multi-timescale optimization fixed as the main backbone
-- move next to a hard-token training objective that focuses learning on the most informative tokens while keeping evaluation on the full-token objective
-- this is the first direct test of the information-theoretic compression and selective-training idea
+- keep the winning episodic retrieval stack fixed as the main backbone
+- do not spend more budget on subtractive FFN routing
+- move next to local attention on the locked episodic winner, which is implemented, orthogonal to FFN compute, and easy to compare under the same stream protocol
+- the first local-attention retest at `attention_window=256` reached about `2.0609` validation loss at step `2000`, which is clearly better than token routing but is mostly a parity check because the window still spans the full `256`-token block
+- retrieval stayed healthy in that parity run, but episodic slot utilization dropped to about `0.2183`
+- the first meaningful sparse-attention probe on this branch, `attention_window=128`, reached about `2.0483` with `attention/active_fraction` about `0.7490`
+- that was slightly better than the `256` parity run and clearly better than token routing, but still far worse than the dense episodic winner
+- local attention therefore looks stable but not competitive on this branch, so the next step should move away from attention sparsity rather than push to `64`
+- the best next experiment is now an optimizer-dynamics probe on the locked winner: ramp `retrieval_lr_scale` from `1.0` to `15.0` over the first `500` steps and compare against the fixed-scale winner under the same `2k` stream protocol
 
 Updated read after hard-token benchmarks:
 

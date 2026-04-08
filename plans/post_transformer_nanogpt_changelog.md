@@ -888,6 +888,65 @@ Interpretation:
 - the next sparse-compute test should be additive or objective-level, not subtractive
 
 
+## Retrieval-Conditioned Token-Routed FFN Retest On Episodic Winner
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- locked episodic retrieval winner with `retrieval_lr_scale=15.0`, `episodic_memory_weight=0.0625`, and warmed stream eval
+- the same setup plus retrieval-conditioned token-routed FFN with `ffn_token_fraction=0.5`
+
+Observed result:
+
+- the locked episodic winner reached about `1.2217` on the full `5000` step sweep and serves as the current strongest branch
+- the token-routed episodic retest reached about `2.2950` validation loss at step `2000`
+- `ffn/active_fraction` stayed fixed at `0.5000`
+- `token_router/gate_mean` stayed around `0.64`
+- `memory/retrieval_entropy` stayed in a healthy `0.144-0.152` range
+
+Interpretation:
+
+- the token router was active and using the retrieval hint, but cutting FFN compute still hurt badly
+- unlike the earlier weaker-branch failure, this retest did not depend on retrieval collapse to look bad
+- subtractive token routing should now be treated as a strongly falsified direction in this harness
+- the next implemented architectural probe should move to local attention on top of the locked episodic winner
+
+
+## Local Attention Retest On Episodic Winner
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- locked episodic retrieval winner with `retrieval_lr_scale=15.0`, `episodic_memory_weight=0.0625`, and warmed stream eval
+- the same setup with `attention_mode=local` and `attention_window=256`
+- the same setup with `attention_mode=local` and `attention_window=128`
+
+Observed result:
+
+- local attention with `attention_window=256` reached about `2.0609` validation loss at step `2000`
+- `attention/window_tokens` stayed at `256.0000`
+- `memory/retrieval_entropy` stayed in a healthy `0.154-0.164` range
+- `memory/episodic_slot_utilization` dropped to roughly `0.22`
+- local attention with `attention_window=128` reached about `2.0483` validation loss at step `2000`
+- `attention/active_fraction` dropped to about `0.7490`, confirming real sparsity
+- `memory/retrieval_entropy` stayed healthy around `0.1562`
+- `memory/episodic_slot_utilization` recovered modestly to roughly `0.27`
+
+Interpretation:
+
+- this run is better than the subtractive token-routing result, but `attention_window=256` is mostly a parity check because it still covers the full block
+- the local-attention codepath appears stable on the winning episodic branch, but it is not yet demonstrating an actual sparsity win
+- the real sparse-attention run at `attention_window=128` improved slightly over the parity check and stayed clearly ahead of token routing, but the quality gap to the dense episodic winner is still large
+- local attention should therefore be treated as a stable but currently non-competitive cost-reduction path on this branch
+- the next highest-value implemented probe is now retrieval-LR warmup on top of the locked dense episodic winner, using the existing `retrieval_lr_scale_warmup_iters` flag
+
+
 ## Hard-Token Objective Prototype
 
 Updated:

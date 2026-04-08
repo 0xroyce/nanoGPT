@@ -628,6 +628,10 @@ Trusted token-routing note:
 
 - even after fixing the initial router-training bug, the token-routed FFN run regressed badly to about `4.7299` validation loss versus the warmed stream retrieval baseline at about `3.3602`
 - retrieval entropy also blew up sharply, so do not spend more runs on subtractive token routing
+- retesting token-routed FFN on the strongest episodic branch with `retrieval_lr_scale=15.0`, `episodic_memory_weight=0.0625`, and `stream_eval_warmup_iters=64` still regressed badly to about `2.2950` validation loss at step `2000`
+- retrieval stayed healthy in that retest, with `memory/retrieval_entropy` around `0.144-0.152`, so this looks like a direct quality hit from removing FFN compute rather than a memory-collapse artifact
+- `ffn/active_fraction=0.5000` and `token_router/gate_mean` stayed around `0.64`, so the router was active and using memory, but the sparse compute cut still hurt
+- subtractive token routing should now be treated as a fully trusted negative result, not a tuning target
 
 ### Hard-Token Objective Benchmark
 
@@ -898,6 +902,7 @@ Current read:
 - surprise weighting is now a trusted negative result on both the earlier weaker baseline and the canonical corrected `x8` baseline
 - binary hard-token selection and soft surprise weighting should both be deprioritized
 - the next branch should stop changing the loss and return to architectural or memory-system changes
+- the next implemented architectural probe should be local attention on top of the locked episodic winner, since local-learning-signal machinery is not yet in the harness and subtractive sparse FFN routing is now ruled out
 
 Full repo-style GPT-2 reproduction config:
 
@@ -907,33 +912,53 @@ torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py
 
 ### Local attention benchmark run
 
-Start with explicit overrides:
+Start with the winning episodic retrieval stack and swap only attention sparsity:
 
 ```bash
-python train.py \
-  --dataset=openwebtext \
-  --device=cuda \
-  --compile=False \
-  --attention_mode=local \
-  --attention_window=256 \
-  --log_experiment_metrics=True
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=64 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=15.0 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.0625 --attention_mode=local --attention_window=256 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x15-episodic-w0p0625-local-attn256-stream-warm64-2k | tee owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_local_attn256_stream_warm64_2k.log
 ```
 
-Then compare against:
+Observed result so far:
+
+- local attention with `attention_window=256` on the locked episodic winner reached about `2.0609` validation loss at step `2000`
+- because `attention_window=256` equals `block_size=256`, this is effectively a parity check for the local-attention codepath, not yet a real sparsity run
+- the run was much better than subtractive token routing, but still showed weaker episodic slot utilization at about `0.2183`
+- retrieval stayed healthy with `memory/retrieval_entropy` around `0.1560`
+- local attention with `attention_window=128` reached about `2.0483` validation loss at step `2000`
+- `attention/active_fraction` dropped to about `0.7490`, so this was the first real sparse-attention run on the winning episodic branch
+- `attention_window=128` improved slightly over the `256` parity run and stayed clearly better than token-routed FFN, while `memory/retrieval_entropy` stayed healthy around `0.1562`
+- even so, both local-attention runs are still far behind the dense episodic winner, so this axis does not currently look competitive on quality
+
+Next meaningful local-attention probe:
 
 ```bash
-python train.py \
-  --dataset=openwebtext \
-  --device=cuda \
-  --compile=False \
-  --attention_mode=dense \
-  --log_experiment_metrics=True
+grep -E "step |iter |loss_terms|metrics" owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_local_attn128_stream_warm64_2k.log | tail -n 80
 ```
 
 Conservative first local windows:
 
 - `256`
 - `128`
+
+Recommended read:
+
+- do not spend more budget shrinking the attention window further on this branch unless a throughput target specifically justifies it
+- the better next step is to keep dense attention and move to a different additive axis
+- the best next implemented additive axis is now retrieval-LR warmup on top of the locked dense episodic winner
+
+### Next Recommended Optimizer-Dynamics Run
+
+Use the locked dense episodic winner and ramp `retrieval_lr_scale` from `1.0` to `15.0` over the first `500` steps:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=64 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=15.0 --retrieval_lr_scale_warmup_iters=500 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.0625 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x15-lrwarm500-episodic-w0p0625-stream-warm64-2k | tee owt_memory_s32_k4_multiscale_x15_lrwarm500_episodic_w0p0625_stream_warm64_2k.log
+```
+
+Then inspect:
+
+```bash
+grep -E "step |iter |loss_terms|metrics" owt_memory_s32_k4_multiscale_x15_lrwarm500_episodic_w0p0625_stream_warm64_2k.log | tail -n 80
+```
 
 
 ## Metrics to Watch
