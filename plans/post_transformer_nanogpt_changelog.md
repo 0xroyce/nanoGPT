@@ -952,7 +952,8 @@ Interpretation:
 - the local loss was clearly active in metrics, so this validates the prototype plumbing but suggests the first coefficient was too aggressive
 - the lighter follow-up at `memory_local_learning_weight=0.01` regressed even further to about `2.2795`
 - this indicates the failure is not just an overweighted auxiliary term, and the first local-target formulation should be treated as a negative result on the winning branch
-- the next prototype is now a memory utility head trained against detached token-loss teachers, which is a different local signal than hidden-state reconstruction
+- the follow-up memory utility head trained against detached token-loss teachers also regressed badly, reaching about `2.2917`
+- this means two distinct local-learning formulations have now failed on the winning branch, so the branch should stop local-learning sweeps and keep the dense episodic winner frozen
 
 
 ## Hard-Token Objective Prototype

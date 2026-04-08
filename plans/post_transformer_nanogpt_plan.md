@@ -796,6 +796,8 @@ Next architectural step revision:
 - the first pilot at `memory_local_learning_weight=0.05` reached about `2.1941` validation loss at step `2000`, so that initial coefficient is too strong for the locked winner
 - the local objective was clearly active, which validates the prototype wiring
 - a lighter follow-up at `memory_local_learning_weight=0.01` regressed even further to about `2.2795`, so this first local-target formulation should now be treated as a negative result rather than a tunable near-miss
+- a second formulation based on detached token-loss teachers, `memory_utility_learning_weight=0.01`, also regressed badly to about `2.2917`
+- the current verdict is that local-learning prototypes are not competitive on the locked episodic winner, so further sweeps on this axis should pause
 
 
 ## Phase 6.5 - Local Learning Signals
@@ -836,8 +838,8 @@ Current status:
 - this satisfies the intended deliverable without changing the global training loop
 - the first tested coefficient, `memory_local_learning_weight=0.05`, was a negative result
 - lowering the coefficient to `0.01` also failed and regressed further
-- the current verdict is that this specific local-target formulation is not competitive on the locked episodic winner
-- the next formulation to test is a retrieval-utility target, where memory predicts detached high-surprise-token teachers rather than hidden-state reconstruction
+- a second formulation, where memory predicts detached high-surprise-token teachers, also failed
+- the current verdict is that local-learning prototypes are not competitive on the locked episodic winner under the current harness
 
 
 ## Research Backlog Beyond the First Prototype

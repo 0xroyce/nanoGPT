@@ -1023,10 +1023,25 @@ Interpretation:
 - this first stop-gradient local-target prototype should now be treated as a trusted negative on the locked winner
 - the next step should move away from this specific auxiliary target rather than continue coefficient sweeps
 
-Next prototype:
+Third prototype:
 
-- supervise a memory utility head from detached token-loss teachers instead of reconstructing hidden states
-- keep the dense episodic `x15` winner fixed and test whether retrieval context can learn to predict high-surprise tokens without destabilizing the branch
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=64 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=15.0 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.0625 --use_aux_losses=True --use_memory_utility_learning=True --memory_utility_learning_weight=0.01 --memory_utility_top_fraction=0.25 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x15-episodic-w0p0625-utility0p01-topq25-stream-warm64-2k | tee owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_utility0p01_topq25_stream_warm64_2k.log
+```
+
+Observed result:
+
+- `step 2000`: `train loss 2.4244`, `val loss 2.2917`
+- `memory_utility_prediction_loss` stayed active around `0.50-0.53`
+- `memory/utility_prediction_mean` tracked the detached teacher fraction reasonably closely, at roughly `0.23-0.27` versus `0.25`
+- episodic slot utilization stayed weak at roughly `0.17-0.18`
+
+Interpretation:
+
+- this second local-learning formulation is also a clear negative on the locked winner
+- the memory utility head did learn the local target, so the failure is not a wiring issue
+- two different local-learning formulations now regress badly on the dense episodic winner, so local-learning sweeps should stop here for this branch
+- the branch should keep the dense episodic `x15` configuration frozen as the real validated result
 
 
 ## Metrics to Watch
