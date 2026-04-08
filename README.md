@@ -3,6 +3,33 @@
 
 ![nanoGPT](assets/nanogpt.jpg)
 
+---
+
+## Fork Note
+
+This repository is built on **Andrej Karpathy's `nanoGPT`** and keeps his original project and README as the foundation.
+
+This fork is being used as a fast experiment harness for **post-Transformer research** focused on whether a more neuroscience-inspired language model architecture can reduce training cost to roughly **10%** of a comparable dense Transformer baseline.
+
+Current research themes in this fork:
+
+- retrieval-first memory instead of storing everything in weights
+- sparse or routed compute instead of dense activation everywhere
+- multi-timescale learning
+- richer objectives than next-token prediction alone
+
+Research notes for this fork:
+
+- [post_transformer_nanogpt_plan.md](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/plans/post_transformer_nanogpt_plan.md)
+- [post_transformer_nanogpt_runbook.md](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/plans/post_transformer_nanogpt_runbook.md)
+- [post_transformer_nanogpt_changelog.md](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/plans/post_transformer_nanogpt_changelog.md)
+
+Fork / research repo:
+
+- https://github.com/0xroyce
+
+Below this note, the original upstream `nanoGPT` README is preserved.
+
 
 ---
 

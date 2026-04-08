@@ -10,3 +10,4 @@ __pycache__/
 input.txt
 env/
 venv/
+plans/post_transformer_nanogpt_x_article.md
