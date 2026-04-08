@@ -81,6 +81,7 @@ episodic_memory_topk = 1
 episodic_memory_weight = 0.0
 use_multiscale_optim = False
 retrieval_lr_scale = 1.0
+retrieval_lr_scale_warmup_iters = 0
 external_lr_scale = 1.0
 ffn_mode = 'dense'
 num_experts = 1
@@ -267,6 +268,23 @@ def get_active_memory_retrieval_weight(it):
         return memory_retrieval_weight
     progress = min(float(it + 1) / float(memory_retrieval_warmup_iters), 1.0)
     return memory_retrieval_weight * progress
+
+
+def get_active_retrieval_lr_scale(it):
+    if not use_multiscale_optim or not use_retrieval_memory:
+        return 1.0
+    if retrieval_lr_scale_warmup_iters <= 0:
+        return retrieval_lr_scale
+    progress = min(float(it + 1) / float(retrieval_lr_scale_warmup_iters), 1.0)
+    return 1.0 + (retrieval_lr_scale - 1.0) * progress
+
+
+def set_optimizer_group_lrs(optimizer, base_lr, active_retrieval_scale):
+    for param_group in optimizer.param_groups:
+        group_scale = float(param_group.get('lr_scale', 1.0))
+        if param_group.get('lr_scale_group') == 'retrieval':
+            group_scale = active_retrieval_scale
+        param_group['lr'] = base_lr * group_scale
 
 
 def get_batch(split):
@@ -520,8 +538,8 @@ while True:
 
     # determine and set the learning rate for this iteration
     lr = get_lr(iter_num) if decay_lr else learning_rate
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+    active_retrieval_lr_scale = get_active_retrieval_lr_scale(iter_num)
+    set_optimizer_group_lrs(optimizer, lr, active_retrieval_lr_scale)
     if hasattr(raw_model, 'set_retrieval_weight'):
         raw_model.set_retrieval_weight(get_active_memory_retrieval_weight(iter_num))
     if hasattr(raw_model, 'set_hard_token_fraction'):
@@ -583,7 +601,12 @@ while True:
             model_output = model(X, Y, return_info=should_return_info())
             logits, loss, loss_dict, metrics = unpack_model_output(model_output)
             last_loss_dict = loss_dict
-            last_metrics = metrics
+            last_metrics = dict(metrics)
+            if use_multiscale_optim and use_retrieval_memory:
+                last_metrics['optimizer/retrieval_lr_scale'] = torch.tensor(
+                    active_retrieval_lr_scale,
+                    device=X.device,
+                )
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = get_batch('train')

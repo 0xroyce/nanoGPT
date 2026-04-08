@@ -689,25 +689,48 @@ Trusted surprise-weighted note:
 - retrieval stayed healthy with `memory/retrieval_entropy` around `0.15`, so the failure looked like objective-level calibration rather than memory collapse
 - the next step should stop changing the loss and instead test better training dynamics on the winning retrieval architecture
 
-### Retrieval Warmup Benchmark
+### Multiscale Optimizer Correction
+
+Important implementation note:
+
+- the training loop was resetting every optimizer group to the same learning rate each step
+- this flattened the intended backbone, retrieval, and external LR ratios
+- prior `use_multiscale_optim=True` results should be treated as provisional and revalidated under the corrected scheduler
+
+### Corrected Multiscale Baseline
+
+Recommended first rerun:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-corrected-stream-2k | tee owt_memory_s32_k4_multiscale_x2_corrected_stream_2k.log
+```
+
+What to watch:
+
+- `val loss`
+- `memory/retrieval_entropy`
+- `optimizer/retrieval_lr_scale`
+- `mfu`
+
+### Retrieval LR Warmup Benchmark
 
 Fresh design hypothesis:
 
-- keep the winning retrieval plus multi-timescale architecture intact
-- reduce early-training chaos by ramping retrieval contribution in over the first few hundred steps
-- keep evaluation at the full configured retrieval weight so comparisons stay honest
+- keep retrieval fully active from the start
+- preserve true multiscale optimizer group ratios during training
+- ramp the retrieval optimizer scale from `1.0` up to the configured `retrieval_lr_scale`
 
 Recommended next benchmark:
 
 ```bash
-python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --memory_retrieval_warmup_iters=500 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-retrieval-warmup500-stream-2k | tee owt_memory_s32_k4_multiscale_x2_retrieval_warmup500_stream_2k.log
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=16 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=2.0 --retrieval_lr_scale_warmup_iters=100 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x2-retrieval-lr-warmup100-stream-2k | tee owt_memory_s32_k4_multiscale_x2_retrieval_lr_warmup100_stream_2k.log
 ```
 
 What to watch:
 
 - `val loss`
 - `loss_terms lm_loss`
-- `memory/retrieval_weight`
+- `optimizer/retrieval_lr_scale`
 - `memory/retrieval_entropy`
 - `memory/local_slot_utilization`
 - `mfu`

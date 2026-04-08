@@ -708,6 +708,19 @@ Next architectural step revision:
 - test whether early training dynamics are the wasted-compute problem by ramping retrieval weight in over the first few hundred steps
 - this is the cleanest next probe of the “better initialization and training dynamics” idea in the current harness
 
+Updated read after optimizer-side inspection:
+
+- the train loop was resetting every optimizer parameter group to the same learning rate each step
+- that means prior multiscale optimizer results were confounded and must be revalidated
+- retrieval-weight warmup was low-signal even before that correction, so it is not the right next axis to keep sweeping
+
+Next architectural step revision:
+
+- preserve true backbone versus retrieval LR ratios throughout training
+- rerun the corrected multiscale retrieval baseline first
+- then test retrieval-LR warmup by ramping the retrieval optimizer scale from `1.0` up to the configured `retrieval_lr_scale`
+- this is now the most direct optimizer-dynamics test that actually affects the current winning branch
+
 
 ## Phase 6.5 - Local Learning Signals
 

@@ -1016,6 +1016,28 @@ Why this is the next direction:
 - it preserves the strongest validated branch while probing whether early retrieval pressure is part of the remaining inefficiency
 
 
+## Multiscale Optimizer Scheduler Correction
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- fixed the training loop so it no longer overwrites every optimizer parameter group to the same learning rate each step
+- optimizer groups now preserve explicit LR scales for backbone, retrieval, and external-memory parameters
+- added `retrieval_lr_scale_warmup_iters`
+- retrieval optimizer groups can now ramp from scale `1.0` up to the configured `retrieval_lr_scale`
+- added `optimizer/retrieval_lr_scale` to iteration metrics for easier log inspection
+
+Why this matters:
+
+- the previous multiscale optimizer setup was being partially neutralized by the per-step LR assignment
+- prior `use_multiscale_optim=True` results should be treated as provisional until rerun under the corrected scheduler
+- the next trustworthy comparison is a corrected multiscale retrieval baseline, followed by retrieval-LR warmup ablations
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

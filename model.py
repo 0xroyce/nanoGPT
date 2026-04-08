@@ -1264,17 +1264,55 @@ class GPT(nn.Module):
                 backbone_nodecay_params.append(param)
 
         optim_groups = [
-            {'params': backbone_decay_params, 'weight_decay': weight_decay, 'lr': learning_rate},
-            {'params': backbone_nodecay_params, 'weight_decay': 0.0, 'lr': learning_rate},
+            {
+                'params': backbone_decay_params,
+                'weight_decay': weight_decay,
+                'lr': learning_rate,
+                'lr_scale': 1.0,
+                'lr_scale_group': 'backbone',
+            },
+            {
+                'params': backbone_nodecay_params,
+                'weight_decay': 0.0,
+                'lr': learning_rate,
+                'lr_scale': 1.0,
+                'lr_scale_group': 'backbone',
+            },
         ]
 
-        retrieval_lr = learning_rate * retrieval_lr_scale if use_multiscale_optim else learning_rate
-        external_lr = learning_rate * external_lr_scale if use_multiscale_optim else learning_rate
+        retrieval_lr_scale = retrieval_lr_scale if use_multiscale_optim else 1.0
+        external_lr_scale = external_lr_scale if use_multiscale_optim else 1.0
+        retrieval_lr = learning_rate * retrieval_lr_scale
+        external_lr = learning_rate * external_lr_scale
         optim_groups.extend([
-            {'params': retrieval_decay_params, 'weight_decay': weight_decay, 'lr': retrieval_lr},
-            {'params': retrieval_nodecay_params, 'weight_decay': 0.0, 'lr': retrieval_lr},
-            {'params': external_decay_params, 'weight_decay': weight_decay, 'lr': external_lr},
-            {'params': external_nodecay_params, 'weight_decay': 0.0, 'lr': external_lr},
+            {
+                'params': retrieval_decay_params,
+                'weight_decay': weight_decay,
+                'lr': retrieval_lr,
+                'lr_scale': retrieval_lr_scale,
+                'lr_scale_group': 'retrieval',
+            },
+            {
+                'params': retrieval_nodecay_params,
+                'weight_decay': 0.0,
+                'lr': retrieval_lr,
+                'lr_scale': retrieval_lr_scale,
+                'lr_scale_group': 'retrieval',
+            },
+            {
+                'params': external_decay_params,
+                'weight_decay': weight_decay,
+                'lr': external_lr,
+                'lr_scale': external_lr_scale,
+                'lr_scale_group': 'external',
+            },
+            {
+                'params': external_nodecay_params,
+                'weight_decay': 0.0,
+                'lr': external_lr,
+                'lr_scale': external_lr_scale,
+                'lr_scale_group': 'external',
+            },
         ])
 
         num_decay_params = sum(p.numel() for p in backbone_decay_params + retrieval_decay_params + external_decay_params)
