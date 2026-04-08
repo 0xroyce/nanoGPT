@@ -944,9 +944,11 @@ Recommended read:
 
 - do not spend more budget shrinking the attention window further on this branch unless a throughput target specifically justifies it
 - the better next step is to keep dense attention and move to a different additive axis
-- the best next implemented additive axis is now retrieval-LR warmup on top of the locked dense episodic winner
+- retrieval-LR warmup on top of the locked dense episodic winner was also a negative result in the current harness
+- do not spend more budget sweeping retrieval-LR warmup on this branch
+- the next step should move away from optimizer warmup and toward implementing the next additive direction in Phase 6.5
 
-### Next Recommended Optimizer-Dynamics Run
+### Retrieval-LR Warmup Probe
 
 Use the locked dense episodic winner and ramp `retrieval_lr_scale` from `1.0` to `15.0` over the first `500` steps:
 
@@ -959,6 +961,18 @@ Then inspect:
 ```bash
 grep -E "step |iter |loss_terms|metrics" owt_memory_s32_k4_multiscale_x15_lrwarm500_episodic_w0p0625_stream_warm64_2k.log | tail -n 80
 ```
+
+Observed result:
+
+- `step 2000`: `train loss 2.2669`, `val loss 2.1451`
+- this is worse than both local-attention probes (`2.0609` at `attention_window=256`, `2.0483` at `attention_window=128`)
+- retrieval stayed numerically healthy, with `memory/retrieval_entropy` around `0.165-0.174`
+
+Interpretation:
+
+- retrieval-LR warmup is not helping the locked dense episodic winner in the current `2k` stream harness
+- this should be treated as another trusted negative optimizer-dynamics result, not a promising setting to extend to `5k`
+- the next high-value step is implementation work on the next additive idea rather than another warmup sweep
 
 
 ## Metrics to Watch

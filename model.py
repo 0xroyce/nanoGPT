@@ -352,6 +352,8 @@ class RetrievalMemory(nn.Module):
         self.episodic_memory_slots = config.episodic_memory_slots
         self.episodic_memory_topk = config.episodic_memory_topk
         self.episodic_memory_weight = config.episodic_memory_weight
+        self.use_memory_local_learning = config.use_memory_local_learning
+        self.memory_local_learning_weight = config.memory_local_learning_weight
         self.memory_update_during_eval = False
         self.last_router_hint = None
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
@@ -363,6 +365,7 @@ class RetrievalMemory(nn.Module):
         self.episodic_query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.episodic_key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.episodic_value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.local_learning_head = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
         if self.use_persistent_memory:
@@ -767,6 +770,10 @@ class RetrievalMemory(nn.Module):
             'memory/episodic_slots': torch.tensor(float(episodic_count), device=x.device),
             'memory/episodic_retrieval_entropy': episodic_entropy_mean.detach(),
             'memory/episodic_weight': torch.tensor(float(self.episodic_memory_weight), device=x.device),
+            'memory/local_learning_enabled': torch.tensor(
+                1.0 if self.use_memory_local_learning else 0.0,
+                device=x.device,
+            ),
         }
         if persistent_count > 0:
             metrics['memory/persistent_slot_utilization'] = (persistent_slot_hits > 0).float().mean().detach()
@@ -801,6 +808,16 @@ class RetrievalMemory(nn.Module):
                 eps=1e-8,
             )
             aux_losses['retrieval_consistency_loss'] = consistency.mean()
+            if self.use_memory_local_learning:
+                local_prediction = self.local_learning_head(retrieved_context)
+                local_prediction_cosine = F.cosine_similarity(
+                    local_prediction,
+                    x.detach(),
+                    dim=-1,
+                    eps=1e-8,
+                )
+                aux_losses['memory_local_prediction_loss'] = (1.0 - local_prediction_cosine).mean()
+                metrics['memory/local_prediction_cosine'] = local_prediction_cosine.mean().detach()
             if external_count > 0:
                 aux_losses['external_gate_utility_loss'] = F.binary_cross_entropy_with_logits(
                     external_logits,
@@ -874,6 +891,8 @@ class GPTConfig:
     episodic_memory_slots: int = 0
     episodic_memory_topk: int = 1
     episodic_memory_weight: float = 0.0
+    use_memory_local_learning: bool = False
+    memory_local_learning_weight: float = 0.0
     use_multiscale_optim: bool = False
     retrieval_lr_scale: float = 1.0
     external_lr_scale: float = 1.0
@@ -1106,6 +1125,8 @@ class GPT(nn.Module):
                 for name, aux_loss in memory_loss_terms.items():
                     loss_dict[name] = aux_loss
                     aux_weight = self.aux_loss_weights.get(name, 0.0)
+                    if name == 'memory_local_prediction_loss' and aux_weight == 0.0:
+                        aux_weight = self.config.memory_local_learning_weight
                     if aux_weight != 0.0:
                         aux_loss_total = aux_loss_total + aux_loss * aux_weight
                 loss = loss + aux_loss_total

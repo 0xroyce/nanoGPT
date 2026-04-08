@@ -944,7 +944,9 @@ Interpretation:
 - the local-attention codepath appears stable on the winning episodic branch, but it is not yet demonstrating an actual sparsity win
 - the real sparse-attention run at `attention_window=128` improved slightly over the parity check and stayed clearly ahead of token routing, but the quality gap to the dense episodic winner is still large
 - local attention should therefore be treated as a stable but currently non-competitive cost-reduction path on this branch
-- the next highest-value implemented probe is now retrieval-LR warmup on top of the locked dense episodic winner, using the existing `retrieval_lr_scale_warmup_iters` flag
+- the follow-up retrieval-LR warmup probe on top of the locked dense episodic winner also failed to help, reaching about `2.1451` validation loss at step `2000`
+- retrieval remained numerically healthy in that warmup run, so the failure looks like optimizer dynamics not matching the winner rather than an outright memory collapse
+- the branch should stop spending budget on retrieval-LR warmup sweeps and move next to implementing the next additive direction instead
 
 
 ## Hard-Token Objective Prototype

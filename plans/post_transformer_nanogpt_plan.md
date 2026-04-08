@@ -789,8 +789,10 @@ Next architectural step revision:
 
 - preserve true backbone versus retrieval LR ratios throughout training
 - rerun the corrected multiscale retrieval baseline first
-- then test retrieval-LR warmup by ramping the retrieval optimizer scale from `1.0` up to the configured `retrieval_lr_scale`
-- this is now the most direct optimizer-dynamics test that actually affects the current winning branch
+- the first direct retrieval-LR warmup probe on the locked winner, using `retrieval_lr_scale_warmup_iters=500`, reached about `2.1451` validation loss at step `2000`
+- retrieval stayed numerically healthy in that run, but quality regressed relative to both local-attention probes and far more relative to the dense episodic winner
+- retrieval-LR warmup should therefore be treated as another negative optimizer-dynamics result on this branch
+- the next step should move away from warmup sweeps and into implementing the next additive direction, namely a minimal local-learning-signal prototype for the memory path
 
 
 ## Phase 6.5 - Local Learning Signals
