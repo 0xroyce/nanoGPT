@@ -337,7 +337,8 @@ class RetrievalMemory(nn.Module):
 
         self.memory_slots = config.memory_slots
         self.memory_topk = config.memory_topk
-        self.retrieval_weight = config.memory_retrieval_weight
+        self.base_retrieval_weight = config.memory_retrieval_weight
+        self.retrieval_weight = self.base_retrieval_weight
         self.use_persistent_memory = config.use_persistent_memory
         self.persistent_memory_momentum = config.persistent_memory_momentum
         self.use_memory_controller = config.use_memory_controller
@@ -505,6 +506,9 @@ class RetrievalMemory(nn.Module):
 
     def set_memory_update_mode(self, enabled):
         self.memory_update_during_eval = bool(enabled)
+
+    def set_retrieval_weight(self, weight):
+        self.retrieval_weight = float(max(weight, 0.0))
 
     def _retrieve_from_slots(self, q, memory_slots, topk=None, valid_mask=None, query_proj=None, key_proj=None, value_proj=None):
         slot_count = memory_slots.size(1)
@@ -742,6 +746,7 @@ class RetrievalMemory(nn.Module):
             'memory/source_entropy': source_entropy.detach(),
             'memory/slots': torch.tensor(float(total_slots), device=x.device),
             'memory/topk': torch.tensor(float(self.memory_topk), device=x.device),
+            'memory/retrieval_weight': torch.tensor(float(self.retrieval_weight), device=x.device),
             'memory/local_slots': torch.tensor(float(local_count), device=x.device),
             'memory/persistent_active_fraction': persistent_source_weight.mean().detach(),
             'memory/persistent_enabled': torch.tensor(1.0 if self.use_persistent_memory else 0.0, device=x.device),
@@ -855,6 +860,7 @@ class GPTConfig:
     memory_slots: int = 0
     memory_topk: int = 0
     memory_retrieval_weight: float = 1.0
+    memory_retrieval_warmup_iters: int = 0
     use_persistent_memory: bool = False
     persistent_memory_momentum: float = 0.95
     use_memory_controller: bool = False
@@ -944,6 +950,7 @@ class GPT(nn.Module):
         ))
         self.retrieval_memory = RetrievalMemory(config) if config.use_retrieval_memory else None
         self.aux_loss_weights = _parse_aux_loss_weights(config.aux_loss_weights)
+        self.current_retrieval_weight = config.memory_retrieval_weight
         self.current_hard_token_fraction = config.hard_token_fraction
         self.current_surprise_weight_strength = 1.0
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
@@ -1144,6 +1151,11 @@ class GPT(nn.Module):
     def set_memory_update_mode(self, enabled):
         if self.retrieval_memory is not None:
             self.retrieval_memory.set_memory_update_mode(enabled)
+
+    def set_retrieval_weight(self, weight):
+        self.current_retrieval_weight = float(max(weight, 0.0))
+        if self.retrieval_memory is not None:
+            self.retrieval_memory.set_retrieval_weight(self.current_retrieval_weight)
 
     def set_hard_token_fraction(self, fraction):
         self.current_hard_token_fraction = float(min(max(fraction, 0.0), 1.0))

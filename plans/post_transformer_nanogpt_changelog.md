@@ -968,6 +968,54 @@ Why this is the next direction:
 - it is the cleanest soft version of the information-theoretic compression idea in the current harness
 
 
+## Validated Surprise-Weighted Objective Benchmark
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- retrieval plus multi-timescale optimizer groups with warmed stream evaluation
+- the same setup plus a surprise-weighted objective with `surprise_weight_power=1.0` and `surprise_weight_cap=2.0`
+
+Observed result:
+
+- retrieval plus multi-timescale optimizer groups reached about `3.3602` validation loss at step `2000`
+- the surprise-weighted objective regressed to about `3.6592`
+- this was much better than the binary hard-token objective, which regressed to about `4.5080`
+- retrieval stayed healthy, with `memory/retrieval_entropy` around `0.15`
+- the main failure mode still looked like objective-level calibration rather than collapse of the retrieval subsystem
+
+Interpretation:
+
+- soft surprise weighting is a milder negative result than hard token selection
+- the broader “informative tokens matter more” idea may still hold, but this loss reweighting scheme does not beat the plain retrieval baseline
+- the next step should stop changing the objective and move to training-dynamics experiments on the winning architecture
+
+
+## Retrieval Warmup Schedule
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- added `memory_retrieval_warmup_iters`
+- retrieval memory now exposes a runtime retrieval-weight setter
+- training can ramp retrieval contribution from near-zero to the configured `memory_retrieval_weight`
+- evaluation now temporarily restores the full configured retrieval weight for apples-to-apples comparisons
+- added `memory/retrieval_weight` to experiment metrics so the active schedule is visible in logs
+
+Why this is the next direction:
+
+- it directly tests the “better initialization and training dynamics” idea without changing the winning architecture
+- it lets early optimization start with a gentler retrieval signal before the model has organized useful representations
+- it preserves the strongest validated branch while probing whether early retrieval pressure is part of the remaining inefficiency
+
+
 ## Phase 1 Benchmark Result
 
 Dataset used:

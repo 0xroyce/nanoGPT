@@ -65,6 +65,7 @@ use_retrieval_memory = False
 memory_slots = 0
 memory_topk = 0
 memory_retrieval_weight = 1.0
+memory_retrieval_warmup_iters = 0
 use_persistent_memory = False
 persistent_memory_momentum = 0.95
 use_memory_controller = False
@@ -259,6 +260,15 @@ def get_active_surprise_weight_strength(it):
     return min(float(it) / float(surprise_weight_warmup_iters), 1.0)
 
 
+def get_active_memory_retrieval_weight(it):
+    if not use_retrieval_memory:
+        return 0.0
+    if memory_retrieval_warmup_iters <= 0:
+        return memory_retrieval_weight
+    progress = min(float(it + 1) / float(memory_retrieval_warmup_iters), 1.0)
+    return memory_retrieval_weight * progress
+
+
 def get_batch(split):
     global stream_batchers
     if batching_mode == 'stream':
@@ -314,6 +324,7 @@ model_args = dict(
     memory_slots=memory_slots,
     memory_topk=memory_topk,
     memory_retrieval_weight=memory_retrieval_weight,
+    memory_retrieval_warmup_iters=memory_retrieval_warmup_iters,
     use_persistent_memory=use_persistent_memory,
     persistent_memory_momentum=persistent_memory_momentum,
     use_memory_controller=use_memory_controller,
@@ -424,6 +435,8 @@ def estimate_loss():
     out = {}
     metric_out = {}
     model.eval()
+    if hasattr(raw_model, 'set_retrieval_weight'):
+        raw_model.set_retrieval_weight(memory_retrieval_weight)
     for split in ['train', 'val']:
         if hasattr(raw_model, 'reset_memory'):
             raw_model.reset_memory()
@@ -456,6 +469,8 @@ def estimate_loss():
         raw_model.reset_memory()
     if hasattr(raw_model, 'set_memory_update_mode'):
         raw_model.set_memory_update_mode(False)
+    if hasattr(raw_model, 'set_retrieval_weight'):
+        raw_model.set_retrieval_weight(get_active_memory_retrieval_weight(iter_num))
     if hasattr(raw_model, 'set_hard_token_fraction'):
         raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
     if hasattr(raw_model, 'set_surprise_weight_strength'):
@@ -487,6 +502,8 @@ if wandb_log and master_process:
 X, Y = get_batch('train') # fetch the very first batch
 if hasattr(raw_model := (model.module if ddp else model), 'reset_memory'):
     raw_model.reset_memory()
+if hasattr(raw_model, 'set_retrieval_weight'):
+    raw_model.set_retrieval_weight(get_active_memory_retrieval_weight(iter_num))
 if hasattr(raw_model, 'set_hard_token_fraction'):
     raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
 if hasattr(raw_model, 'set_surprise_weight_strength'):
@@ -505,6 +522,8 @@ while True:
     lr = get_lr(iter_num) if decay_lr else learning_rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+    if hasattr(raw_model, 'set_retrieval_weight'):
+        raw_model.set_retrieval_weight(get_active_memory_retrieval_weight(iter_num))
     if hasattr(raw_model, 'set_hard_token_fraction'):
         raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
     if hasattr(raw_model, 'set_surprise_weight_strength'):

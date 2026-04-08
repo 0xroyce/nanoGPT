@@ -695,6 +695,19 @@ Next architectural step revision:
 - keep all tokens in the loss, but upweight harder ones smoothly with clipping and a warmup schedule
 - this is the cleaner next test of selective training under the current harness
 
+Updated read after surprise-weighted benchmarks:
+
+- soft surprise weighting was a milder negative result than binary hard-token selection
+- it kept retrieval healthy, with retrieval entropy staying close to the good retrieval-only runs
+- the failure mode looked like objective-level calibration, not architectural collapse
+
+Next architectural step revision:
+
+- keep retrieval plus multi-timescale optimization fixed as the main backbone
+- stop changing the language-model objective for now
+- test whether early training dynamics are the wasted-compute problem by ramping retrieval weight in over the first few hundred steps
+- this is the cleanest next probe of the “better initialization and training dynamics” idea in the current harness
+
 
 ## Phase 6.5 - Local Learning Signals
 
