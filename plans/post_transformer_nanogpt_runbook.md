@@ -946,7 +946,9 @@ Recommended read:
 - the better next step is to keep dense attention and move to a different additive axis
 - retrieval-LR warmup on top of the locked dense episodic winner was also a negative result in the current harness
 - do not spend more budget sweeping retrieval-LR warmup on this branch
-- the next step should move away from optimizer warmup and toward implementing the next additive direction in Phase 6.5
+- the first Phase 6.5 memory-local-learning prototype is now implemented and wired into the harness
+- the first pilot at `memory_local_learning_weight=0.05` was too intrusive and should be treated as a negative initial setting
+- the next step is to keep the prototype but reduce the local-loss weight rather than abandon the axis
 
 ### Retrieval-LR Warmup Probe
 
@@ -973,6 +975,58 @@ Interpretation:
 - retrieval-LR warmup is not helping the locked dense episodic winner in the current `2k` stream harness
 - this should be treated as another trusted negative optimizer-dynamics result, not a promising setting to extend to `5k`
 - the next high-value step is implementation work on the next additive idea rather than another warmup sweep
+
+### Memory Local-Learning Prototype
+
+Prototype shape:
+
+- retrieval memory now has a small local prediction head trained to reconstruct a stop-gradient hidden-state target from retrieved context
+- the global LM loss stays intact
+- the local objective is exposed through `memory_local_prediction_loss` and weighted by `memory_local_learning_weight`
+
+First pilot:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=64 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=15.0 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.0625 --use_aux_losses=True --use_memory_local_learning=True --memory_local_learning_weight=0.05 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x15-episodic-w0p0625-locallearn0p05-stream-warm64-2k | tee owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_locallearn0p05_stream_warm64_2k.log
+```
+
+Observed result:
+
+- `step 2000`: `train loss 2.3237`, `val loss 2.1941`
+- `memory_local_prediction_loss` stayed active around `0.45-0.60`
+- `memory/local_prediction_cosine` stayed around `0.52-0.55` during normal iterations, so the local head was learning a non-trivial target
+- episodic slot utilization fell to roughly `0.17`, much lower than the strong dense episodic branch
+
+Interpretation:
+
+- the prototype plumbing works, but `memory_local_learning_weight=0.05` hurts the current branch badly
+- this is a negative first setting, not a negative verdict on local learning as an axis
+- the next probe should reduce the local-loss weight to `0.01` or `0.02` rather than add more machinery immediately
+
+Second pilot:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=10 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=64 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=15.0 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.0625 --use_aux_losses=True --use_memory_local_learning=True --memory_local_learning_weight=0.01 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x15-episodic-w0p0625-locallearn0p01-stream-warm64-2k | tee owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_locallearn0p01_stream_warm64_2k.log
+```
+
+Observed result:
+
+- `step 2000`: `train loss 2.4072`, `val loss 2.2795`
+- `aux_loss` dropped to roughly `0.0045`, so the local objective became much weaker
+- `memory/local_prediction_cosine` remained healthy around `0.54-0.56`
+- episodic slot utilization recovered only partially to about `0.22`
+
+Interpretation:
+
+- lowering the coefficient did not rescue this local-learning formulation
+- `0.01` is worse than `0.05`, so the failure is not just “too much weight”
+- this first stop-gradient local-target prototype should now be treated as a trusted negative on the locked winner
+- the next step should move away from this specific auxiliary target rather than continue coefficient sweeps
+
+Next prototype:
+
+- supervise a memory utility head from detached token-loss teachers instead of reconstructing hidden states
+- keep the dense episodic `x15` winner fixed and test whether retrieval context can learn to predict high-surprise tokens without destabilizing the branch
 
 
 ## Metrics to Watch

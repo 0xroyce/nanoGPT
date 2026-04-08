@@ -354,8 +354,12 @@ class RetrievalMemory(nn.Module):
         self.episodic_memory_weight = config.episodic_memory_weight
         self.use_memory_local_learning = config.use_memory_local_learning
         self.memory_local_learning_weight = config.memory_local_learning_weight
+        self.use_memory_utility_learning = config.use_memory_utility_learning
+        self.memory_utility_learning_weight = config.memory_utility_learning_weight
+        self.memory_utility_top_fraction = config.memory_utility_top_fraction
         self.memory_update_during_eval = False
         self.last_router_hint = None
+        self.last_memory_utility_logits = None
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.external_router = nn.Linear(config.n_embd, 1, bias=config.bias)
@@ -366,6 +370,7 @@ class RetrievalMemory(nn.Module):
         self.episodic_key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.episodic_value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.local_learning_head = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.utility_head = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
         if self.use_persistent_memory:
@@ -506,6 +511,7 @@ class RetrievalMemory(nn.Module):
             self.episodic_memory_valid.fill_(False)
             self.episodic_memory_ptr.zero_()
         self.last_router_hint = None
+        self.last_memory_utility_logits = None
 
     def set_memory_update_mode(self, enabled):
         self.memory_update_during_eval = bool(enabled)
@@ -650,6 +656,10 @@ class RetrievalMemory(nn.Module):
 
         retrieved_context = output
         self.last_router_hint = retrieved_context.detach()
+        if self.use_memory_utility_learning:
+            self.last_memory_utility_logits = self.utility_head(retrieved_context).squeeze(-1)
+        else:
+            self.last_memory_utility_logits = None
         output = self.dropout(self.proj(output)) * self.retrieval_weight
         output = output * controller_mask
         self._update_persistent_memory(local_slots)
@@ -774,6 +784,10 @@ class RetrievalMemory(nn.Module):
                 1.0 if self.use_memory_local_learning else 0.0,
                 device=x.device,
             ),
+            'memory/utility_learning_enabled': torch.tensor(
+                1.0 if self.use_memory_utility_learning else 0.0,
+                device=x.device,
+            ),
         }
         if persistent_count > 0:
             metrics['memory/persistent_slot_utilization'] = (persistent_slot_hits > 0).float().mean().detach()
@@ -893,6 +907,9 @@ class GPTConfig:
     episodic_memory_weight: float = 0.0
     use_memory_local_learning: bool = False
     memory_local_learning_weight: float = 0.0
+    use_memory_utility_learning: bool = False
+    memory_utility_learning_weight: float = 0.0
+    memory_utility_top_fraction: float = 0.25
     use_multiscale_optim: bool = False
     retrieval_lr_scale: float = 1.0
     external_lr_scale: float = 1.0
@@ -1043,6 +1060,7 @@ class GPT(nn.Module):
 
         hard_objective_metrics = {}
         surprise_objective_metrics = {}
+        memory_objective_metrics = {}
         full_lm_loss = None
         objective_lm_loss = None
         if targets is not None:
@@ -1107,6 +1125,38 @@ class GPT(nn.Module):
                     'objective/surprise_weight_mean': torch.tensor(1.0, device=x.device),
                     'objective/surprise_weight_max': torch.tensor(1.0, device=x.device),
                 }
+            if (
+                self.retrieval_memory is not None
+                and self.config.use_memory_utility_learning
+                and self.retrieval_memory.last_memory_utility_logits is not None
+            ):
+                utility_logits = self.retrieval_memory.last_memory_utility_logits
+                if valid_losses.numel() > 0:
+                    teacher_count = max(
+                        1,
+                        min(
+                            valid_losses.numel(),
+                            int(math.ceil(valid_losses.numel() * self.config.memory_utility_top_fraction)),
+                        ),
+                    )
+                    teacher_indices = torch.topk(valid_losses.detach(), k=teacher_count).indices
+                    teacher_targets = torch.zeros_like(valid_losses.detach())
+                    teacher_targets.scatter_(0, teacher_indices, 1.0)
+                    memory_loss_terms['memory_utility_prediction_loss'] = F.binary_cross_entropy_with_logits(
+                        utility_logits[valid_mask],
+                        teacher_targets,
+                    )
+                    utility_probs = torch.sigmoid(utility_logits.detach())
+                    memory_objective_metrics = {
+                        'memory/utility_teacher_fraction': teacher_targets.mean().detach(),
+                        'memory/utility_prediction_mean': utility_probs[valid_mask].mean().detach(),
+                    }
+                else:
+                    memory_loss_terms['memory_utility_prediction_loss'] = token_losses.new_zeros(())
+                    memory_objective_metrics = {
+                        'memory/utility_teacher_fraction': torch.tensor(0.0, device=x.device),
+                        'memory/utility_prediction_mean': torch.tensor(0.0, device=x.device),
+                    }
             loss = objective_lm_loss
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
@@ -1127,6 +1177,8 @@ class GPT(nn.Module):
                     aux_weight = self.aux_loss_weights.get(name, 0.0)
                     if name == 'memory_local_prediction_loss' and aux_weight == 0.0:
                         aux_weight = self.config.memory_local_learning_weight
+                    if name == 'memory_utility_prediction_loss' and aux_weight == 0.0:
+                        aux_weight = self.config.memory_utility_learning_weight
                     if aux_weight != 0.0:
                         aux_loss_total = aux_loss_total + aux_loss * aux_weight
                 loss = loss + aux_loss_total
@@ -1139,6 +1191,7 @@ class GPT(nn.Module):
             metrics.update(hard_objective_metrics)
         if self.config.use_surprise_weighted_objective:
             metrics.update(surprise_objective_metrics)
+        metrics.update(memory_objective_metrics)
         metrics['model/attention_mode_is_dense'] = torch.tensor(
             1.0 if self.config.attention_mode == 'dense' else 0.0,
             device=x.device,

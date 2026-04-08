@@ -792,7 +792,10 @@ Next architectural step revision:
 - the first direct retrieval-LR warmup probe on the locked winner, using `retrieval_lr_scale_warmup_iters=500`, reached about `2.1451` validation loss at step `2000`
 - retrieval stayed numerically healthy in that run, but quality regressed relative to both local-attention probes and far more relative to the dense episodic winner
 - retrieval-LR warmup should therefore be treated as another negative optimizer-dynamics result on this branch
-- the next step should move away from warmup sweeps and into implementing the next additive direction, namely a minimal local-learning-signal prototype for the memory path
+- the minimal local-learning-signal prototype for the memory path is now implemented
+- the first pilot at `memory_local_learning_weight=0.05` reached about `2.1941` validation loss at step `2000`, so that initial coefficient is too strong for the locked winner
+- the local objective was clearly active, which validates the prototype wiring
+- a lighter follow-up at `memory_local_learning_weight=0.01` regressed even further to about `2.2795`, so this first local-target formulation should now be treated as a negative result rather than a tunable near-miss
 
 
 ## Phase 6.5 - Local Learning Signals
@@ -826,6 +829,15 @@ Deliverable:
 Success criteria:
 
 - reduced optimization burden or improved sample efficiency without destabilizing the full model
+
+Current status:
+
+- the first implemented prototype uses a module-level local prediction loss on retrieval memory with a stop-gradient hidden-state target
+- this satisfies the intended deliverable without changing the global training loop
+- the first tested coefficient, `memory_local_learning_weight=0.05`, was a negative result
+- lowering the coefficient to `0.01` also failed and regressed further
+- the current verdict is that this specific local-target formulation is not competitive on the locked episodic winner
+- the next formulation to test is a retrieval-utility target, where memory predicts detached high-surprise-token teachers rather than hidden-state reconstruction
 
 
 ## Research Backlog Beyond the First Prototype

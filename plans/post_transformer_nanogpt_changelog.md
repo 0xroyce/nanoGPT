@@ -947,6 +947,12 @@ Interpretation:
 - the follow-up retrieval-LR warmup probe on top of the locked dense episodic winner also failed to help, reaching about `2.1451` validation loss at step `2000`
 - retrieval remained numerically healthy in that warmup run, so the failure looks like optimizer dynamics not matching the winner rather than an outright memory collapse
 - the branch should stop spending budget on retrieval-LR warmup sweeps and move next to implementing the next additive direction instead
+- the first memory-local-learning prototype is now in the harness, using a stop-gradient local prediction target on retrieved context
+- the first pilot with `memory_local_learning_weight=0.05` also regressed badly, reaching about `2.1941` validation loss at step `2000`
+- the local loss was clearly active in metrics, so this validates the prototype plumbing but suggests the first coefficient was too aggressive
+- the lighter follow-up at `memory_local_learning_weight=0.01` regressed even further to about `2.2795`
+- this indicates the failure is not just an overweighted auxiliary term, and the first local-target formulation should be treated as a negative result on the winning branch
+- the next prototype is now a memory utility head trained against detached token-loss teachers, which is a different local signal than hidden-state reconstruction
 
 
 ## Hard-Token Objective Prototype
