@@ -1002,7 +1002,7 @@ class GPT(nn.Module):
         self.replay_buffer_use_count = None
         self.replay_buffer_valid = None
         self.replay_buffer_ptr = 0
-        self.replay_forward_counter = 0
+        self.current_replay_active = False
         self.last_replay_stats = {}
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # with weight tying when using torch.compile() some warnings get generated:
@@ -1290,13 +1290,10 @@ class GPT(nn.Module):
                     'memory/replay_trace_reuse': torch.tensor(0.0, device=x.device),
                     'memory/replay_utility_mean': torch.tensor(0.0, device=x.device),
                 }
-                if self.training:
-                    self.replay_forward_counter += 1
                 should_replay = (
                     self.training
+                    and self.current_replay_active
                     and self.config.memory_replay_weight > 0.0
-                    and self.config.memory_replay_every > 0
-                    and self.replay_forward_counter % self.config.memory_replay_every == 0
                 )
                 if should_replay:
                     replay_batch = self._sample_replay_batch()
@@ -1425,6 +1422,9 @@ class GPT(nn.Module):
 
     def set_surprise_weight_strength(self, strength):
         self.current_surprise_weight_strength = float(min(max(strength, 0.0), 1.0))
+
+    def set_replay_active(self, enabled):
+        self.current_replay_active = bool(enabled)
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):

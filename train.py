@@ -477,6 +477,8 @@ def estimate_loss():
     model.eval()
     if hasattr(raw_model, 'set_retrieval_weight'):
         raw_model.set_retrieval_weight(memory_retrieval_weight)
+    if hasattr(raw_model, 'set_replay_active'):
+        raw_model.set_replay_active(False)
     for split in ['train', 'val']:
         if hasattr(raw_model, 'reset_memory'):
             raw_model.reset_memory()
@@ -515,6 +517,8 @@ def estimate_loss():
         raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
     if hasattr(raw_model, 'set_surprise_weight_strength'):
         raw_model.set_surprise_weight_strength(get_active_surprise_weight_strength(iter_num))
+    if hasattr(raw_model, 'set_replay_active'):
+        raw_model.set_replay_active(False)
     if batching_mode == 'stream':
         stream_batchers['train'].reset(randomize=True)
     return out, metric_out
@@ -548,6 +552,8 @@ if hasattr(raw_model, 'set_hard_token_fraction'):
     raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
 if hasattr(raw_model, 'set_surprise_weight_strength'):
     raw_model.set_surprise_weight_strength(get_active_surprise_weight_strength(iter_num))
+if hasattr(raw_model, 'set_replay_active'):
+    raw_model.set_replay_active(False)
 if batching_mode == 'stream':
     stream_batchers['train'].reset(randomize=True)
     X, Y = get_batch('train')
@@ -568,6 +574,8 @@ while True:
         raw_model.set_hard_token_fraction(get_active_hard_token_fraction(iter_num))
     if hasattr(raw_model, 'set_surprise_weight_strength'):
         raw_model.set_surprise_weight_strength(get_active_surprise_weight_strength(iter_num))
+    if hasattr(raw_model, 'set_replay_active'):
+        raw_model.set_replay_active(False)
 
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
@@ -612,6 +620,12 @@ while True:
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
+    replay_this_iter = (
+        use_memory_replay_consolidation
+        and memory_replay_weight > 0.0
+        and memory_replay_every > 0
+        and ((iter_num + 1) % memory_replay_every == 0)
+    )
     for micro_step in range(gradient_accumulation_steps):
         if ddp:
             # in DDP training we only need to sync gradients at the last micro step.
@@ -619,6 +633,8 @@ while True:
             # I really dislike that this bloats the code and forces us to repeat code
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
+        if hasattr(raw_model, 'set_replay_active'):
+            raw_model.set_replay_active(replay_this_iter and micro_step == gradient_accumulation_steps - 1)
         with ctx:
             model_output = model(X, Y, return_info=should_return_info())
             logits, loss, loss_dict, metrics = unpack_model_output(model_output)
@@ -643,6 +659,8 @@ while True:
     scaler.update()
     # flush the gradients as soon as we can, no need for this memory anymore
     optimizer.zero_grad(set_to_none=True)
+    if hasattr(raw_model, 'set_replay_active'):
+        raw_model.set_replay_active(False)
 
     # timing and logging
     t1 = time.time()
