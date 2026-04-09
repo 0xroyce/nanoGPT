@@ -254,6 +254,24 @@ Recommended first pilot command set:
 ./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous_replay 1337 2000
 ```
 
+Observed first hybrid outcome:
+
+- at `2000` steps on seed `1337`, replay reached about `2.2464`
+- `chunked_autonomous` reached about `2.0518`
+- `chunked_autonomous_replay` reached about `2.1168`
+- the hybrid therefore beat replay but still underperformed standalone chunked autonomous in the short-run regime
+- at `5000` steps on the same seed, replay reached about `1.2312`
+- `chunked_autonomous` reached about `1.2385`
+- `chunked_autonomous_replay` reached about `1.2390`
+- interpretation: the first always-on hybrid did not deliver the hoped-for late-stage recovery
+
+Updated recommendation:
+
+1. do not promote the current always-on hybrid to matched-seed replication
+2. treat it as a useful negative result rather than a frontier candidate
+3. if replay is combined with chunked memory again, do it with a delayed schedule so replay starts only after the chunk policy has had time to form
+4. if that delayed hybrid also fails, retire the hybrid path quickly instead of burning more routine benchmark budget
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

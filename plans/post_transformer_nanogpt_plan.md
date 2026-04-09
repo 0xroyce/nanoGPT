@@ -1349,18 +1349,42 @@ Updated recommendation:
 4. use the existing replay setting `memory_replay_weight=0.01`, `memory_replay_every=32`, and `memory_replay_batch_size=4` as the first hybrid recipe
 5. benchmark that hybrid first at `2000` steps before spending more `5000`-step budget
 
+Observed first hybrid outcome:
+
+- at `2000` steps on seed `1337`, replay reached about `2.2464`
+- on that same seed and horizon, `chunked_autonomous` reached about `2.0518`
+- the first always-on `chunked_autonomous_replay` hybrid reached about `2.1168`
+- that means the hybrid beat replay by about `0.1296` but still lagged chunked autonomous by about `0.0650`
+- at `5000` steps on the same seed, replay reached about `1.2312`
+- `chunked_autonomous` reached about `1.2385`
+- the hybrid reached about `1.2390`
+- the hybrid therefore failed to beat replay late and even trailed the standalone chunked branch slightly at the endpoint
+
+Hybrid interpretation:
+
+- the naive always-on hybrid does not yet compose the early chunked gain with replay's stronger late convergence
+- instead, it appears to blunt chunked's early sample-efficiency advantage while still finishing behind replay
+- this is a useful negative result because it narrows the space: simple additive combination is not enough
+
+Next recommendation:
+
+1. do not spend a matched-seed `5000` budget on this exact always-on hybrid recipe
+2. if hybridization is continued, make it phase-aware rather than always-on
+3. the most plausible next version is delayed replay, where chunked episodic memory learns first and replay turns on only after the chunk policy has stabilized
+4. if that delayed schedule also fails, retire this hybrid family and move on to a different memory architecture
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
 
-1. chunked episodic memory plus replay-based consolidation
+1. chunked episodic memory plus delayed replay-based consolidation
 
 Why:
 
 - chunked memory already showed a real early-training sample-efficiency gain
 - replay already showed the stronger late-training and reduced-budget robustness behavior
-- the highest-signal unknown is now whether those two strengths compose inside one branch
-- this is the cleanest next attempt to turn the memory-hierarchy story into an end-to-end win instead of a split decision between early and late training
+- the first always-on hybrid did not combine those strengths cleanly
+- the highest-signal unknown is now whether a delayed replay schedule can preserve chunked's early advantage while still borrowing replay's late-stage stability
 
 Prototype A should remain available underneath that work:
 

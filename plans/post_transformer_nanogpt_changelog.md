@@ -1644,3 +1644,26 @@ Next implementation chosen:
 - combine chunked autonomous writes with the already validated replay setting
 - benchmark that hybrid as `chunked_autonomous_replay`
 - update [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) so the hybrid branch is runnable with the same standard profiles
+
+## First Chunked-Replay Hybrid Result
+
+Observed outcome:
+
+- at `2000` steps on seed `1337`, replay reached about `2.2464`
+- `chunked_autonomous` reached about `2.0518`
+- the first always-on `chunked_autonomous_replay` hybrid reached about `2.1168`
+- at `5000` steps on that same seed, replay reached about `1.2312`
+- `chunked_autonomous` reached about `1.2385`
+- the hybrid reached about `1.2390`
+
+Interpretation:
+
+- the naive always-on hybrid is not the right composition
+- it softens chunked memory's early sample-efficiency advantage without recovering replay's stronger late endpoint
+- this is strong enough to avoid promoting the exact recipe to a matched-seed `5000` replication
+
+Next recommendation:
+
+- if hybridization continues, make replay phase-aware rather than always-on
+- the next plausible version is delayed replay that switches on only after chunked summaries and boundaries have stabilized
+- if that delayed schedule also fails, retire this hybrid family and move on
