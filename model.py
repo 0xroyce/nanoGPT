@@ -334,11 +334,16 @@ class RetrievalMemory(nn.Module):
             raise ValueError("memory_topk must be > 0 when use_retrieval_memory=True")
         if config.use_persistent_memory and config.memory_slots <= 0:
             raise ValueError("memory_slots must be > 0 when use_persistent_memory=True")
+        if config.use_recurrent_state and config.state_dim <= 0:
+            raise ValueError("state_dim must be > 0 when use_recurrent_state=True")
 
         self.memory_slots = config.memory_slots
         self.memory_topk = config.memory_topk
         self.base_retrieval_weight = config.memory_retrieval_weight
         self.retrieval_weight = self.base_retrieval_weight
+        self.use_recurrent_state = config.use_recurrent_state
+        self.state_dim = config.state_dim
+        self.recurrent_state_weight = config.recurrent_state_weight
         self.use_persistent_memory = config.use_persistent_memory
         self.persistent_memory_momentum = config.persistent_memory_momentum
         self.use_memory_controller = config.use_memory_controller
@@ -386,6 +391,13 @@ class RetrievalMemory(nn.Module):
         self.utility_head = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
+        if self.use_recurrent_state:
+            self.recurrent_state_input = nn.Linear(config.n_embd, self.state_dim, bias=config.bias)
+            self.recurrent_state_to_hidden = nn.Linear(self.state_dim, config.n_embd, bias=config.bias)
+            self.recurrent_state_gate = nn.Linear(config.n_embd, 1, bias=config.bias)
+            self.recurrent_state_cell = nn.GRUCell(self.state_dim, self.state_dim, bias=config.bias)
+            self.register_buffer("recurrent_state", torch.zeros(0, self.state_dim))
+            self.register_buffer("recurrent_state_valid", torch.zeros(0, dtype=torch.bool))
         if self.use_persistent_memory:
             self.register_buffer("persistent_memory", torch.zeros(config.memory_slots, config.n_embd))
             self.register_buffer("persistent_memory_valid", torch.tensor(False, dtype=torch.bool))
@@ -458,6 +470,25 @@ class RetrievalMemory(nn.Module):
         if not self.use_persistent_memory or not bool(self.persistent_memory_valid.item()):
             return None
         return self.persistent_memory.unsqueeze(0).expand(batch_size, -1, -1)
+
+    def _ensure_recurrent_state(self, batch_size, device):
+        if not self.use_recurrent_state:
+            return
+        needs_resize = (
+            self.recurrent_state.ndim != 2
+            or self.recurrent_state.size(0) != batch_size
+            or self.recurrent_state.device != device
+        )
+        if not needs_resize:
+            return
+        self.recurrent_state = torch.zeros(batch_size, self.state_dim, device=device)
+        self.recurrent_state_valid = torch.zeros(batch_size, dtype=torch.bool, device=device)
+
+    def _get_recurrent_state(self, batch_size, device):
+        if not self.use_recurrent_state:
+            return None, None
+        self._ensure_recurrent_state(batch_size, device)
+        return self.recurrent_state, self.recurrent_state_valid
 
     def _get_external_slots(self, batch_size):
         if not self.use_external_memory:
@@ -879,6 +910,18 @@ class RetrievalMemory(nn.Module):
         self.external_memory_ptr.fill_(int((start + write_count) % self.external_memory_slots))
 
     @torch.no_grad()
+    def _update_recurrent_state(self, x):
+        if not self.use_recurrent_state or not (self.training or self.memory_update_during_eval):
+            return
+        batch_size = x.size(0)
+        self._ensure_recurrent_state(batch_size, x.device)
+        state_input = self.recurrent_state_input(x.detach().mean(dim=1))
+        current_state = self.recurrent_state
+        updated_state = self.recurrent_state_cell(state_input, current_state)
+        self.recurrent_state.copy_(updated_state)
+        self.recurrent_state_valid.fill_(True)
+
+    @torch.no_grad()
     def _update_episodic_memory(self, x, local_slots, event_summaries=None, event_valid=None, event_spans=None):
         if not self.use_episodic_memory or not (self.training or self.memory_update_during_eval):
             return
@@ -921,6 +964,9 @@ class RetrievalMemory(nn.Module):
 
     @torch.no_grad()
     def reset_memory(self):
+        if self.use_recurrent_state:
+            self.recurrent_state.zero_()
+            self.recurrent_state_valid.fill_(False)
         if not self.use_persistent_memory:
             pass
         else:
@@ -1018,6 +1064,7 @@ class RetrievalMemory(nn.Module):
 
     def forward(self, x, return_metrics=False, return_aux_losses=False, update_memory=True):
         local_slots, local_count = self._build_memory_slots(x)
+        recurrent_state, recurrent_valid = self._get_recurrent_state(x.size(0), x.device)
         persistent_slots = self._get_persistent_slots(x.size(0))
         external_slots = self._get_external_slots(x.size(0))
         episodic_slots, episodic_valid, episodic_spans = self._get_episodic_slots(x.size(0), x.device)
@@ -1093,6 +1140,12 @@ class RetrievalMemory(nn.Module):
             episodic_topk = 0
 
         retrieved_context = output
+        recurrent_gate = torch.zeros_like(x[..., :1])
+        if recurrent_state is not None:
+            recurrent_context = self.recurrent_state_to_hidden(recurrent_state).unsqueeze(1)
+            recurrent_gate = torch.sigmoid(self.recurrent_state_gate(x))
+            valid_scale = recurrent_valid.float().view(-1, 1, 1)
+            output = output + recurrent_context * recurrent_gate * valid_scale * self.recurrent_state_weight
         self.last_router_hint = retrieved_context.detach()
         if self.use_memory_utility_learning:
             self.last_memory_utility_logits = self.utility_head(retrieved_context).squeeze(-1)
@@ -1101,6 +1154,7 @@ class RetrievalMemory(nn.Module):
         output = self.dropout(self.proj(output)) * self.retrieval_weight
         output = output * controller_mask
         if update_memory:
+            self._update_recurrent_state(x + output)
             self._update_persistent_memory(local_slots)
             self._update_external_memory(local_slots)
             self._update_episodic_memory(
@@ -1195,6 +1249,8 @@ class RetrievalMemory(nn.Module):
 
         metrics = {
             'memory/active_fraction': torch.tensor(float(self.memory_topk) / float(total_slots), device=x.device),
+            'memory/recurrent_enabled': torch.tensor(1.0 if self.use_recurrent_state else 0.0, device=x.device),
+            'memory/recurrent_weight': torch.tensor(float(self.recurrent_state_weight), device=x.device),
             'memory/controller_enabled': torch.tensor(1.0 if self.use_memory_controller else 0.0, device=x.device),
             'memory/controller_fraction': controller_mask.mean().detach(),
             'memory/controller_entropy': controller_entropy,
@@ -1234,6 +1290,17 @@ class RetrievalMemory(nn.Module):
                 device=x.device,
             ),
         }
+        if recurrent_state is not None:
+            recurrent_valid_float = recurrent_valid.float()
+            metrics['memory/recurrent_valid_fraction'] = recurrent_valid_float.mean().detach()
+            metrics['memory/recurrent_gate_mean'] = recurrent_gate.mean().detach()
+            metrics['memory/recurrent_state_norm'] = (
+                recurrent_state.norm(dim=-1) * recurrent_valid_float
+            ).sum().detach() / recurrent_valid_float.sum().clamp_min(1.0)
+        else:
+            metrics['memory/recurrent_valid_fraction'] = torch.tensor(0.0, device=x.device)
+            metrics['memory/recurrent_gate_mean'] = torch.tensor(0.0, device=x.device)
+            metrics['memory/recurrent_state_norm'] = torch.tensor(0.0, device=x.device)
         if persistent_count > 0:
             metrics['memory/persistent_slot_utilization'] = (persistent_slot_hits > 0).float().mean().detach()
         else:
@@ -1342,6 +1409,9 @@ class GPTConfig:
     memory_topk: int = 0
     memory_retrieval_weight: float = 1.0
     memory_retrieval_warmup_iters: int = 0
+    use_recurrent_state: bool = False
+    state_dim: int = 0
+    recurrent_state_weight: float = 0.0
     use_persistent_memory: bool = False
     persistent_memory_momentum: float = 0.95
     use_memory_controller: bool = False

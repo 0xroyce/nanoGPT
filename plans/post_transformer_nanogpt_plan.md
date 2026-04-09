@@ -1394,19 +1394,25 @@ Final recommendation on this family:
 3. stop spending further routine benchmark budget on replay-plus-chunked schedule tweaks
 4. move to a genuinely different memory architecture rather than another hybrid schedule variant
 
+Implemented next architecture:
+
+- `use_recurrent_state=True` now enables a compact working-memory prototype on top of the retrieval winner
+- the first version uses a per-stream recurrent latent state updated by a GRU cell from the current sequence summary
+- that state is projected back into token space and fused through a token-wise gate, so it behaves like a scratchpad rather than a second retrieval bank
+- this is intentionally different from the failed persistent-memory bank: it is compact, recurrent, and active-context oriented instead of being another slot store
+- the benchmark runner now supports a `recurrent_state` variant as the first direct test of Phase 7C
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
 
-1. chunked episodic memory plus delayed replay-based consolidation
+1. compact working memory / recurrent state
 
 Why:
 
-- chunked memory already showed a real early-training sample-efficiency gain
-- replay already showed the stronger late-training and reduced-budget robustness behavior
-- the first always-on hybrid did not combine those strengths cleanly
-- the delayed replay follow-up also failed to turn chunked's early advantage into a better late endpoint
-- the next highest-signal unknown is now outside this hybrid family rather than inside another replay schedule tweak
+- the replay-plus-chunked family has now been tested in both always-on and delayed forms and failed cleanly
+- the next architecture should separate active short-horizon state from stored episodic traces instead of trying to compose two trace mechanisms
+- a compact recurrent scratchpad is the clearest remaining high-signal memory-hierarchy idea in the plan that is genuinely distinct from the branches we already falsified
 
 Prototype A should remain available underneath that work:
 

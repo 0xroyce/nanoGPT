@@ -298,6 +298,19 @@ Updated recommendation:
 2. keep the result as a useful negative finding about composition, not a near-miss that needs more schedule tweaking
 3. move the next implementation effort to a genuinely different memory architecture
 
+Working-memory follow-up:
+
+- `use_recurrent_state=True` now enables a compact working-memory prototype on top of the retrieval winner
+- the first version keeps a per-stream recurrent latent state, updates it with a GRU cell from the current sequence summary, and projects it back into token space through a learned token gate
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `recurrent_state`
+
+Recommended first pilot:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh replay 1337 2000
+./scripts/run_learned_boundary_head_benchmark.sh recurrent_state 1337 2000
+```
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

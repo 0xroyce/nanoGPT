@@ -1694,3 +1694,13 @@ Interpretation:
 - delaying replay is not enough to make the chunked-plus-replay family competitive with replay
 - this closes the most plausible schedule-based fix for the current hybrid recipe
 - the family should now be retired as an active benchmark direction
+
+## Compact Working-Memory Prototype
+
+Implemented:
+
+- a new `use_recurrent_state` path in [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- a compact per-stream latent scratchpad with configurable `state_dim`
+- GRU-style recurrent updates from the current sequence summary
+- gated projection of the recurrent state back into token space so the scratchpad complements retrieval memory instead of becoming another slot bank
+- benchmark runner support for a first `recurrent_state` variant in [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh)
