@@ -1615,3 +1615,32 @@ Implemented:
 - learned chunk summaries built from segment mean, max, start, end, and normalized span length
 - episodic span metadata stored alongside the summary bank and injected back into retrieval through a learned span embedding
 - benchmark runner support for `chunked_heuristic` and `chunked_autonomous` pilot variants
+
+Observed pilot and replication outcome:
+
+- at `2000` steps, replay averaged about `2.2120`
+- `chunked_heuristic` averaged about `2.1671`
+- `chunked_autonomous` averaged about `2.1334`
+- this made chunked autonomous the first clear short-run improvement over replay in the event-segmentation line
+- the branch also used much fewer writes, with roughly `1.25` selected summaries per sequence and selected mean span around `88` to `90` tokens
+
+Observed long-run outcome:
+
+- at `5000` steps on the default budget, replay averaged about `1.2296`
+- `chunked_autonomous` averaged about `1.2309`
+- replay therefore kept a tiny edge of about `0.0013`
+- at `5000` steps on the `episodic32` profile, replay averaged about `1.4623`
+- `chunked_autonomous` averaged about `1.4802`
+- replay therefore also kept the robustness edge under tighter episodic capacity
+
+Interpretation:
+
+- chunked episodic memory is now validated as a real sample-efficiency signal
+- it is not yet validated as a final-quality winner or a reduced-budget robustness winner
+- the branch should therefore stop being treated as a standalone frontier candidate and start being treated as a promising ingredient
+
+Next implementation chosen:
+
+- combine chunked autonomous writes with the already validated replay setting
+- benchmark that hybrid as `chunked_autonomous_replay`
+- update [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) so the hybrid branch is runnable with the same standard profiles

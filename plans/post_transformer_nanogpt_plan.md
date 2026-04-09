@@ -1318,23 +1318,55 @@ Why this is breakthrough-level:
 
 - if the right unit of memory is the event rather than the token span, this could reduce both compute and memory traffic in a more fundamental way than attention sparsity
 
+Observed chunked-memory outcome:
+
+- at `2000` steps, replay averaged about `2.2120`
+- at `2000` steps, `chunked_heuristic` averaged about `2.1671`
+- at `2000` steps, `chunked_autonomous` averaged about `2.1334`
+- that made chunked autonomous the first clear short-run improvement over replay in this memory-hierarchy line
+- the chunked branch also wrote only about `1.25` selected summaries per sequence on average, with selected mean span around `88` to `90` tokens and very low episodic slot utilization around `0.09` to `0.11`
+
+Observed long-run chunked outcome:
+
+- at `5000` steps on the default budget, replay averaged about `1.2296`
+- at `5000` steps on the default budget, `chunked_autonomous` averaged about `1.2309`
+- that means replay retained a tiny edge of about `0.0013`, so the short-run chunked win did not turn into a better final validation loss
+- on the tighter `episodic32` profile, replay averaged about `1.4623`
+- on that same tighter profile, `chunked_autonomous` averaged about `1.4802`
+- that means replay also stayed stronger under reduced episodic capacity, beating chunked autonomous by about `0.0179`
+
+Updated conclusion:
+
+- chunked episodic memory is now a real sample-efficiency signal, not yet a standalone quality or robustness winner
+- the important positive result is that chunked writes learn to compress memory aggressively while keeping early and mid-training quality ahead of replay
+- the important negative result is that replay catches up by late training and still wins under a tighter episodic budget
+
+Updated recommendation:
+
+1. stop running more standalone `chunked_autonomous` stress sweeps as if it were still a likely final-loss winner
+2. preserve chunked episodic memory as an efficiency-positive substrate
+3. combine the two validated strengths next: chunked autonomous writes plus replay-based consolidation
+4. use the existing replay setting `memory_replay_weight=0.01`, `memory_replay_every=32`, and `memory_replay_batch_size=4` as the first hybrid recipe
+5. benchmark that hybrid first at `2000` steps before spending more `5000`-step budget
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
 
-1. event segmentation and chunked episodic memory
+1. chunked episodic memory plus replay-based consolidation
 
 Why:
 
-- replay has already passed the initial viability gate and can now remain as an optional substrate
-- the next highest-signal unknown is whether changing the unit of memory from token-like slots to event summaries improves write quality
-- this is the cleanest next attempt to improve memory structure rather than just memory timing
+- chunked memory already showed a real early-training sample-efficiency gain
+- replay already showed the stronger late-training and reduced-budget robustness behavior
+- the highest-signal unknown is now whether those two strengths compose inside one branch
+- this is the cleanest next attempt to turn the memory-hierarchy story into an end-to-end win instead of a split decision between early and late training
 
 Prototype A should remain available underneath that work:
 
 - keep replay and consolidation in the harness
 - use the validated `memory_replay_weight=0.01`, `memory_replay_every=32`, `memory_replay_batch_size=4` setting as the current optional substrate
-- only resume dedicated replay sweeps if event-segmented memory clearly benefits from replay or exposes a new failure mode
+- only resume dedicated replay sweeps if chunked event-segmented memory clearly benefits from replay or exposes a new failure mode
 
 ### Radical sparsity in weight tensors
 

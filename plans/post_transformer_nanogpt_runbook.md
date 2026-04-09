@@ -215,6 +215,44 @@ Chunked-memory implementation note:
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports:
   - `chunked_heuristic`
   - `chunked_autonomous`
+  - `chunked_autonomous_replay`
+
+Chunked-memory benchmark outcome:
+
+- at `2000` steps, replay averaged about `2.2120`
+- `chunked_heuristic` averaged about `2.1671`
+- `chunked_autonomous` averaged about `2.1334`
+- that means chunked autonomous beat replay by about `0.0786` in the short-run replication
+- behaviorally, chunked autonomous wrote only about `1.25` summaries per sequence with selected mean span around `88` to `90` tokens
+
+Chunked long-run outcome:
+
+- at `5000` steps on the default budget, replay averaged about `1.2296`
+- at `5000` steps on the default budget, `chunked_autonomous` averaged about `1.2309`
+- at `5000` steps on the `episodic32` profile, replay averaged about `1.4623`
+- at `5000` steps on the `episodic32` profile, `chunked_autonomous` averaged about `1.4802`
+- interpretation: chunked memory improves early sample efficiency but does not currently beat replay on final loss or reduced-budget robustness
+
+Updated recommendation:
+
+1. do not promote standalone `chunked_autonomous` as the new benchmark winner
+2. do keep chunked memory as a real efficiency-positive ingredient
+3. combine chunked autonomous writes with the validated replay setting as the next hybrid prototype
+4. run that hybrid first at `2000` steps before committing more `5000`-step budget
+
+Suggested next benchmark:
+
+1. `replay`
+2. `chunked_autonomous`
+3. `chunked_autonomous_replay`
+
+Recommended first pilot command set:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh replay 1337 2000
+./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous 1337 2000
+./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous_replay 1337 2000
+```
 
 Critical anti-goal:
 
