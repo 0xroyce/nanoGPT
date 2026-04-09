@@ -1586,3 +1586,23 @@ Next discriminator chosen:
 - keep `gradient_accumulation_steps=4` so tokens per optimizer step stay fixed
 - scale `stream_eval_warmup_iters` to `128` for the longer streaming context
 - `run_learned_boundary_head_benchmark.sh` now supports this via the `longctx512` profile
+
+## Long-Context Result And Branch Update
+
+Observed outcome:
+
+- replay with the `longctx512` profile reached `2.6325`, `2.6077`, and `2.6243` at `5000` steps, averaging about `2.6215`
+- autonomous learned segmentation with the `longctx512` profile reached `2.6516`, `2.6417`, and `2.6453`, averaging about `2.6462`
+- replay therefore beat autonomous learned segmentation by about `0.0247` on the three-seed mean
+
+Interpretation:
+
+- the learned boundary head stayed behaviorally coherent at longer context, producing about `4.4` events per sequence with mean span around `118` tokens and teacher agreement around `0.82`
+- but that behavioral coherence still did not translate into a quality win
+- this means the current learned-boundary-head formulation is now negative against replay in both major stress regimes that were most likely to favor it
+
+Branch update:
+
+- replay remains the stronger validated substrate
+- the current learned-boundary-head branch should be retired as a routine benchmark candidate
+- if event segmentation is revisited, it should come back only as part of a more structural chunked episodic-memory design rather than another sweep of the same write-policy recipe

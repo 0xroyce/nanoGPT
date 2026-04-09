@@ -194,6 +194,19 @@ Runner support:
   - `episodic32`
   - `longctx512`
 
+Long-context outcome:
+
+- replay with `longctx512` reached `2.6325`, `2.6077`, and `2.6243` at `5000` steps, averaging about `2.6215`
+- autonomous learned segmentation with `longctx512` reached `2.6516`, `2.6417`, and `2.6453`, averaging about `2.6462`
+- interpretation: the learned-head branch also loses under longer temporal context, even though its event policy stays stable and stretches to mean spans around `118` tokens
+
+Updated recommendation:
+
+1. stop treating the current learned-boundary-head branch as a likely benchmark winner
+2. keep replay as the stronger validated substrate
+3. if event segmentation is revisited, do it only as part of a chunked episodic-memory design with event summaries as first-class stored units
+4. do not spend more routine benchmark budget on this exact learned-head recipe
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

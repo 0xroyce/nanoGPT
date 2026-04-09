@@ -1286,6 +1286,27 @@ Why this is now the right test:
 - if segmentation helps at all, the remaining most plausible regime is longer temporal structure rather than smaller storage capacity
 - a matched-token `512`-context comparison tests that hypothesis cleanly without conflating any result with a raw compute-budget change
 
+Observed longer-context outcome:
+
+- with `block_size=512`, `batch_size=4`, and matched tokens per optimizer step, replay reached `2.6325`, `2.6077`, and `2.6243` at `5000` steps, averaging about `2.6215`
+- under that same longer-context setting, autonomous learned segmentation reached `2.6516`, `2.6417`, and `2.6453`, averaging about `2.6462`
+- replay therefore beat autonomous learned segmentation by about `0.0247` on the three-seed mean
+- the learned segmentation mechanism still behaved coherently in this regime, with about `4.4` events per sequence, mean event span around `118` tokens, and teacher agreement around `0.82`
+
+Updated conclusion:
+
+- the current learned-boundary-head formulation is now worse than replay under both tighter memory capacity and longer temporal context
+- that means it should no longer be treated as a live candidate winner in the benchmark matrix
+- the branch is still scientifically useful because it proved the model can learn a stable event policy, but that policy alone is not enough to improve language modeling quality
+
+Updated recommendation:
+
+1. keep replay as the locked reference branch for future memory-hierarchy work
+2. stop spending benchmark budget on the current learned-boundary-head variant as a standalone quality candidate
+3. only revisit event segmentation if the next prototype changes the memory unit itself rather than just the write policy
+4. the right follow-on is chunked episodic memory with event summaries as first-class memory entries
+5. if event segmentation comes back, it should return as part of that chunked-memory design, not as another sweep of the current learned-head recipe
+
 Why this is breakthrough-level:
 
 - if the right unit of memory is the event rather than the token span, this could reduce both compute and memory traffic in a more fundamental way than attention sparsity
