@@ -311,6 +311,19 @@ Recommended first pilot:
 ./scripts/run_learned_boundary_head_benchmark.sh recurrent_state 1337 2000
 ```
 
+Observed first pilot outcome:
+
+- at `2000` steps on seed `1337`, replay reached about `2.2464`
+- the compact recurrent-state prototype reached about `2.1368`
+- that is a short-run gain of about `0.1096`, large enough to treat as a serious lead rather than noise
+- the working-memory metrics stayed live, with recurrent gate mean around `0.47`, recurrent state norm around `0.07`, and recurrent valid fraction at `1.0`
+
+Updated recommendation:
+
+1. move directly to matched-seed replication at `2000` steps
+2. use the same seed set as the earlier replication studies: `1337`, `1437`, `1537`
+3. only spend `5000`-step budget if the three-seed mean still beats replay
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

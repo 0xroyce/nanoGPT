@@ -1402,6 +1402,20 @@ Implemented next architecture:
 - this is intentionally different from the failed persistent-memory bank: it is compact, recurrent, and active-context oriented instead of being another slot store
 - the benchmark runner now supports a `recurrent_state` variant as the first direct test of Phase 7C
 
+Observed first working-memory outcome:
+
+- at `2000` steps on seed `1337`, replay reached about `2.2464`
+- on that same seed, the compact recurrent-state prototype reached about `2.1368`
+- that gives the working-memory branch a short-run edge of about `0.1096`
+- the recurrent scratchpad stayed active throughout training and evaluation, with recurrent gate mean around `0.47`, recurrent state norm around `0.07`, and recurrent valid fraction at `1.0`
+- retrieval entropy also dropped relative to replay, which suggests the scratchpad is helping stabilize active local context instead of simply duplicating the retrieval path
+
+Updated recommendation:
+
+1. treat the compact recurrent-state branch as a real candidate, not just an exploratory side path
+2. move immediately to matched-seed replication at `2000` steps
+3. only promote it to `5000`-step comparison if the mean remains ahead of replay across the seed set
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
@@ -1413,6 +1427,7 @@ Why:
 - the replay-plus-chunked family has now been tested in both always-on and delayed forms and failed cleanly
 - the next architecture should separate active short-horizon state from stored episodic traces instead of trying to compose two trace mechanisms
 - a compact recurrent scratchpad is the clearest remaining high-signal memory-hierarchy idea in the plan that is genuinely distinct from the branches we already falsified
+- the first seed already shows a meaningful short-run gain, so this branch has crossed the threshold from speculative to actively worth replicating
 
 Prototype A should remain available underneath that work:
 

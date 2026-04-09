@@ -1704,3 +1704,15 @@ Implemented:
 - GRU-style recurrent updates from the current sequence summary
 - gated projection of the recurrent state back into token space so the scratchpad complements retrieval memory instead of becoming another slot bank
 - benchmark runner support for a first `recurrent_state` variant in [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh)
+
+Observed first pilot:
+
+- at `2000` steps on seed `1337`, replay reached about `2.2464`
+- the compact recurrent-state prototype reached about `2.1368`
+- this produced a short-run advantage of about `0.1096`
+- recurrent-state metrics stayed live, with gate mean around `0.47`, state norm around `0.07`, and valid fraction at `1.0`
+
+Interpretation:
+
+- compact working memory is immediately more promising than the replay-plus-chunked hybrids were
+- this is strong enough to justify matched-seed replication before any additional architecture tinkering
