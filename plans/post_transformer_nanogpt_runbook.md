@@ -324,6 +324,19 @@ Updated recommendation:
 2. use the same seed set as the earlier replication studies: `1337`, `1437`, `1537`
 3. only spend `5000`-step budget if the three-seed mean still beats replay
 
+Observed matched-seed outcome:
+
+- replay reached `2.2464`, `2.2217`, and `2.1678` at `2000` steps, averaging about `2.2120`
+- the compact recurrent-state branch reached `2.1368`, `2.1720`, and `2.1278`, averaging about `2.1455`
+- that is a three-seed mean edge of about `0.0665`
+- all three recurrent-state runs stayed behaviorally live, with recurrent gate mean near `0.47`, recurrent state norm near `0.07`, and recurrent valid fraction at `1.0`
+
+Updated recommendation:
+
+1. promote `recurrent_state` to a matched-seed `5000`-step benchmark
+2. do not tweak the recurrent hyperparameters yet
+3. treat the next `5000` result as the main decision gate for whether this branch is a true frontier candidate
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

@@ -1416,6 +1416,20 @@ Updated recommendation:
 2. move immediately to matched-seed replication at `2000` steps
 3. only promote it to `5000`-step comparison if the mean remains ahead of replay across the seed set
 
+Observed matched-seed outcome:
+
+- at `2000` steps, replay reached `2.2464`, `2.2217`, and `2.1678`, averaging about `2.2120`
+- at `2000` steps, the compact recurrent-state branch reached `2.1368`, `2.1720`, and `2.1278`, averaging about `2.1455`
+- that gives the recurrent-state branch a three-seed mean advantage of about `0.0665`
+- the recurrent scratchpad stayed live across all seeds, with recurrent gate mean around `0.47`, recurrent state norm around `0.06` to `0.07`, and recurrent valid fraction at `1.0`
+- retrieval entropy also stayed consistently below replay across the three validation runs
+
+Updated recommendation:
+
+1. promote the compact recurrent-state branch to the first `5000`-step matched-seed comparison
+2. keep the architecture fixed for that test instead of tweaking coefficients now
+3. only tune `state_dim` or `recurrent_state_weight` after the first `5000`-step mean is known
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
@@ -1428,6 +1442,7 @@ Why:
 - the next architecture should separate active short-horizon state from stored episodic traces instead of trying to compose two trace mechanisms
 - a compact recurrent scratchpad is the clearest remaining high-signal memory-hierarchy idea in the plan that is genuinely distinct from the branches we already falsified
 - the first seed already shows a meaningful short-run gain, so this branch has crossed the threshold from speculative to actively worth replicating
+- the matched-seed result now clears that replication bar, so the next honest test is the longer-horizon `5000` benchmark
 
 Prototype A should remain available underneath that work:
 

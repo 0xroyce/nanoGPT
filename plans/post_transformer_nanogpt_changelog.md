@@ -1716,3 +1716,15 @@ Interpretation:
 
 - compact working memory is immediately more promising than the replay-plus-chunked hybrids were
 - this is strong enough to justify matched-seed replication before any additional architecture tinkering
+
+Observed matched-seed replication:
+
+- replay averaged about `2.2120` across seeds `1337`, `1437`, and `1537`
+- the compact recurrent-state branch averaged about `2.1455` across the same seed set
+- that produced a three-seed mean advantage of about `0.0665`
+- recurrent-state metrics stayed healthy across all seeds, with gate mean around `0.47`, state norm around `0.06` to `0.07`, and valid fraction at `1.0`
+
+Interpretation:
+
+- compact working memory has now cleared the proper matched-seed replication bar at `2000` steps
+- this is strong enough to justify immediate promotion to a `5000`-step matched-seed comparison without more short-run tuning
