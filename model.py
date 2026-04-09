@@ -354,10 +354,13 @@ class RetrievalMemory(nn.Module):
         self.episodic_memory_weight = config.episodic_memory_weight
         self.use_event_segmented_memory = config.use_event_segmented_memory
         self.event_boundary_mode = config.event_boundary_mode
+        self.event_boundary_teacher_mode = config.event_boundary_teacher_mode
         self.event_max_segments = config.event_max_segments
         self.event_summary_dim = config.event_summary_dim
         self.event_write_topk = config.event_write_topk
         self.event_boundary_weight = config.event_boundary_weight
+        self.event_boundary_head_weight = config.event_boundary_head_weight
+        self.event_boundary_use_teacher_for_writes = config.event_boundary_use_teacher_for_writes
         self.use_memory_local_learning = config.use_memory_local_learning
         self.memory_local_learning_weight = config.memory_local_learning_weight
         self.use_memory_utility_learning = config.use_memory_utility_learning
@@ -367,6 +370,7 @@ class RetrievalMemory(nn.Module):
         self.last_router_hint = None
         self.last_memory_utility_logits = None
         self.last_event_metrics = {}
+        self.last_event_aux_losses = {}
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.external_router = nn.Linear(config.n_embd, 1, bias=config.bias)
@@ -404,9 +408,14 @@ class RetrievalMemory(nn.Module):
         if self.use_event_segmented_memory:
             if not self.use_episodic_memory:
                 raise ValueError("use_event_segmented_memory=True requires use_episodic_memory=True")
-            if self.event_boundary_mode not in {'hidden_state_novelty', 'uniform'}:
+            if self.event_boundary_mode not in {'hidden_state_novelty', 'uniform', 'learned_boundary_head'}:
                 raise ValueError(
-                    "event_boundary_mode must be one of {'hidden_state_novelty', 'uniform'} "
+                    "event_boundary_mode must be one of {'hidden_state_novelty', 'uniform', 'learned_boundary_head'} "
+                    "when use_event_segmented_memory=True"
+                )
+            if self.event_boundary_teacher_mode not in {'hidden_state_novelty', 'uniform'}:
+                raise ValueError(
+                    "event_boundary_teacher_mode must be one of {'hidden_state_novelty', 'uniform'} "
                     "when use_event_segmented_memory=True"
                 )
             if self.event_max_segments < 0:
@@ -415,6 +424,14 @@ class RetrievalMemory(nn.Module):
                 raise ValueError("event_summary_dim must be >= 0 when use_event_segmented_memory=True")
             if self.event_write_topk < 0:
                 raise ValueError("event_write_topk must be >= 0 when use_event_segmented_memory=True")
+            if self.event_boundary_head_weight < 0.0:
+                raise ValueError("event_boundary_head_weight must be >= 0 when use_event_segmented_memory=True")
+            if self.event_boundary_mode == 'learned_boundary_head':
+                self.event_boundary_head = nn.Sequential(
+                    nn.Linear(config.n_embd, config.n_embd, bias=config.bias),
+                    nn.GELU(),
+                    nn.Linear(config.n_embd, 1, bias=config.bias),
+                )
 
     def _build_memory_slots(self, x):
         # Pool the current sequence into a small number of slots so retrieval stays explicit
@@ -466,6 +483,10 @@ class RetrievalMemory(nn.Module):
             'memory/event_boundary_fraction': torch.tensor(0.0, device=device),
             'memory/event_boundary_score_mean': torch.tensor(0.0, device=device),
             'memory/event_boundary_score_max': torch.tensor(0.0, device=device),
+            'memory/event_boundary_prediction_mean': torch.tensor(0.0, device=device),
+            'memory/event_boundary_prediction_fraction': torch.tensor(0.0, device=device),
+            'memory/event_boundary_teacher_fraction': torch.tensor(0.0, device=device),
+            'memory/event_boundary_loss': torch.tensor(0.0, device=device),
             'memory/event_summary_utilization': torch.tensor(0.0, device=device),
             'memory/event_mean_span': torch.tensor(0.0, device=device),
             'memory/event_slot_utilization': torch.tensor(0.0, device=device),
@@ -477,9 +498,107 @@ class RetrievalMemory(nn.Module):
         # event_summary_dim is reserved for a later learned compression stage.
         return summary
 
+    def _compute_event_min_segment_tokens(self, token_count, max_segments, boundary_strength):
+        base_span = max(4, int(math.ceil(token_count / max(max_segments, 1))))
+        return min(
+            max(
+                base_span,
+                int(round(base_span * (1.0 + 0.35 * boundary_strength))),
+            ),
+            max(token_count - 1, 1),
+        )
+
+    def _build_uniform_boundary_positions(self, token_count, boundary_count, device):
+        if boundary_count <= 0:
+            return torch.zeros(0, device=device, dtype=torch.long)
+        return torch.linspace(
+            1,
+            token_count - 1,
+            steps=boundary_count,
+            device=device,
+        ).round().long().unique(sorted=True)
+
+    def _select_event_boundary_positions(self, boundary_scores, boundary_threshold, boundary_count, min_segment_tokens):
+        if boundary_count <= 0 or boundary_scores.numel() == 0:
+            return torch.zeros(0, device=boundary_scores.device, dtype=torch.long)
+
+        left_scores = torch.cat((boundary_scores[:1], boundary_scores[:-1]))
+        right_scores = torch.cat((boundary_scores[1:], boundary_scores[-1:]))
+        peak_mask = (
+            (boundary_scores >= boundary_threshold)
+            & (boundary_scores >= left_scores)
+            & (boundary_scores >= right_scores)
+        )
+        peak_indices = torch.nonzero(peak_mask, as_tuple=False).squeeze(-1)
+        if peak_indices.numel() == 0:
+            return torch.zeros(0, device=boundary_scores.device, dtype=torch.long)
+
+        peak_scores = boundary_scores.index_select(0, peak_indices)
+        target_boundary_budget = min(
+            boundary_count,
+            max(1, int(math.floor(boundary_scores.numel() / float(max(min_segment_tokens, 1))))),
+        )
+        sorted_peak_order = torch.argsort(peak_scores, descending=True)
+        kept_positions = []
+        for order_idx in sorted_peak_order.tolist():
+            candidate_pos = int(peak_indices[order_idx].item()) + 1
+            if all(abs(candidate_pos - prior_pos) >= min_segment_tokens for prior_pos in kept_positions):
+                kept_positions.append(candidate_pos)
+            if len(kept_positions) >= target_boundary_budget:
+                break
+
+        if not kept_positions:
+            return torch.zeros(0, device=boundary_scores.device, dtype=torch.long)
+
+        return torch.tensor(
+            sorted(kept_positions),
+            device=boundary_scores.device,
+            dtype=torch.long,
+        )
+
+    def _compute_event_teacher_agreement(self, predicted_mask, teacher_targets):
+        teacher_mask = teacher_targets > 0.5
+        predicted_count = predicted_mask.float().sum()
+        teacher_count = teacher_mask.float().sum()
+        if float((predicted_count + teacher_count).item()) == 0.0:
+            return 1.0
+        true_positive = (predicted_mask & teacher_mask).float().sum()
+        return float((2.0 * true_positive / (predicted_count + teacher_count).clamp_min(1.0)).item())
+
+    def _build_event_teacher_targets(self, token_states, token_count, max_segments, boundary_strength):
+        boundary_count = min(max_segments - 1, max(token_count - 1, 0))
+        boundary_target_count = max(token_count - 1, 0)
+        target_device = token_states.device
+        target_dtype = token_states.dtype
+        teacher_targets = torch.zeros(boundary_target_count, device=target_device, dtype=target_dtype)
+        if token_count <= 1:
+            return torch.zeros(0, device=target_device, dtype=target_dtype), teacher_targets, torch.zeros(0, device=target_device, dtype=torch.long)
+
+        if self.event_boundary_teacher_mode == 'uniform':
+            boundary_scores = torch.zeros(boundary_target_count, device=target_device, dtype=target_dtype)
+            boundary_positions = self._build_uniform_boundary_positions(token_count, boundary_count, target_device)
+        else:
+            boundary_scores = (token_states[1:] - token_states[:-1]).norm(dim=-1)
+            if boundary_count <= 0:
+                boundary_positions = torch.zeros(0, device=target_device, dtype=torch.long)
+            else:
+                boundary_threshold = boundary_scores.mean() + boundary_strength * boundary_scores.std(unbiased=False)
+                min_segment_tokens = self._compute_event_min_segment_tokens(token_count, max_segments, boundary_strength)
+                boundary_positions = self._select_event_boundary_positions(
+                    boundary_scores,
+                    boundary_threshold,
+                    boundary_count,
+                    min_segment_tokens,
+                )
+
+        if boundary_positions.numel() > 0:
+            teacher_targets.scatter_(0, boundary_positions - 1, 1.0)
+        return boundary_scores, teacher_targets, boundary_positions
+
     def _build_event_summaries(self, x):
         if not self.use_event_segmented_memory:
             self.last_event_metrics = self._get_default_event_metrics(x.device)
+            self.last_event_aux_losses = {}
             return None, None
 
         batch_size, token_count, hidden_dim = x.shape
@@ -496,94 +615,87 @@ class RetrievalMemory(nn.Module):
         boundary_fractions = []
         boundary_score_means = []
         boundary_score_maxes = []
+        boundary_prediction_means = []
+        boundary_prediction_fractions = []
+        boundary_teacher_fractions = []
+        boundary_teacher_agreements = []
         mean_spans = []
         summary_utilizations = []
+        boundary_losses = []
+        self.last_event_aux_losses = {}
 
         for batch_idx in range(batch_size):
             token_states = x[batch_idx]
+            boundary_score_tensor = torch.zeros(max(token_count - 1, 0), device=x.device, dtype=x.dtype)
+            teacher_targets = torch.zeros(max(token_count - 1, 0), device=x.device, dtype=x.dtype)
+            predicted_mask = torch.zeros(max(token_count - 1, 0), device=x.device, dtype=torch.bool)
+            boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
             if token_count <= 1:
                 boundaries = torch.tensor([0, token_count], device=x.device, dtype=torch.long)
-                novelty = torch.zeros(0, device=x.device, dtype=x.dtype)
-            elif self.event_boundary_mode == 'uniform':
-                boundary_count = max_segments - 1
-                if boundary_count <= 0:
-                    boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
-                else:
-                    boundary_positions = torch.linspace(
-                        1,
-                        token_count - 1,
-                        steps=boundary_count,
-                        device=x.device,
-                    ).round().long().unique(sorted=True)
-                boundaries = torch.cat((
-                    torch.tensor([0], device=x.device, dtype=torch.long),
-                    boundary_positions,
-                    torch.tensor([token_count], device=x.device, dtype=torch.long),
-                ))
-                novelty = torch.zeros(token_count - 1, device=x.device, dtype=x.dtype)
             else:
-                novelty = (token_states[1:] - token_states[:-1]).norm(dim=-1)
-                boundary_count = min(max_segments - 1, novelty.numel())
-                if boundary_count <= 0:
-                    boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
-                else:
-                    novelty_mean = novelty.mean()
-                    novelty_std = novelty.std(unbiased=False)
-                    boundary_threshold = novelty_mean + boundary_strength * novelty_std
-                    # Prefer salient local peaks and enforce a minimum spacing between
-                    # them so the heuristic can form fewer, longer events when novelty
-                    # is diffuse rather than always tiling the sequence into near-uniform
-                    # chunks.
-                    left_scores = torch.cat((novelty[:1], novelty[:-1]))
-                    right_scores = torch.cat((novelty[1:], novelty[-1:]))
-                    peak_mask = (novelty >= boundary_threshold) & (novelty >= left_scores) & (novelty >= right_scores)
-                    peak_indices = torch.nonzero(peak_mask, as_tuple=False).squeeze(-1)
-                    if peak_indices.numel() == 0:
-                        boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
-                    else:
-                        peak_scores = novelty.index_select(0, peak_indices)
-                        base_span = max(4, int(math.ceil(token_count / max(max_segments, 1))))
-                        min_segment_tokens = min(
-                            max(
-                                base_span,
-                                int(round(base_span * (1.0 + 0.35 * boundary_strength))),
-                            ),
-                            max(token_count - 1, 1),
-                        )
-                        target_boundary_budget = min(
+                boundary_count = min(max_segments - 1, token_count - 1)
+                min_segment_tokens = self._compute_event_min_segment_tokens(token_count, max_segments, boundary_strength)
+                if self.event_boundary_mode == 'uniform':
+                    boundary_positions = self._build_uniform_boundary_positions(token_count, boundary_count, x.device)
+                    predicted_mask = torch.zeros(token_count - 1, device=x.device, dtype=torch.bool)
+                    if boundary_positions.numel() > 0:
+                        predicted_mask.scatter_(0, boundary_positions - 1, True)
+                    teacher_targets = predicted_mask.to(dtype=x.dtype)
+                    boundary_score_tensor = torch.zeros(token_count - 1, device=x.device, dtype=x.dtype)
+                elif self.event_boundary_mode == 'learned_boundary_head':
+                    _, teacher_targets, teacher_positions = self._build_event_teacher_targets(
+                        token_states,
+                        token_count,
+                        max_segments,
+                        boundary_strength,
+                    )
+                    boundary_features = (token_states[1:] - token_states[:-1]).abs()
+                    boundary_logits = self.event_boundary_head(boundary_features).squeeze(-1)
+                    boundary_score_tensor = torch.sigmoid(boundary_logits)
+                    if boundary_count > 0 and boundary_score_tensor.numel() > 0:
+                        boundary_threshold = boundary_score_tensor.mean() + boundary_strength * boundary_score_tensor.std(unbiased=False)
+                        predicted_positions = self._select_event_boundary_positions(
+                            boundary_score_tensor,
+                            boundary_threshold,
                             boundary_count,
-                            max(1, int(math.floor((token_count - 1) / float(min_segment_tokens)))),
+                            min_segment_tokens,
                         )
-
-                        sorted_peak_order = torch.argsort(peak_scores, descending=True)
-                        kept_positions = []
-                        for order_idx in sorted_peak_order.tolist():
-                            candidate_pos = int(peak_indices[order_idx].item()) + 1
-                            if all(abs(candidate_pos - prior_pos) >= min_segment_tokens for prior_pos in kept_positions):
-                                kept_positions.append(candidate_pos)
-                            if len(kept_positions) >= target_boundary_budget:
-                                break
-
-                        if kept_positions:
-                            boundary_positions = torch.tensor(
-                                sorted(kept_positions),
-                                device=x.device,
-                                dtype=torch.long,
-                            )
-                        else:
-                            boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
+                    else:
+                        predicted_positions = torch.zeros(0, device=x.device, dtype=torch.long)
+                    if predicted_positions.numel() > 0:
+                        predicted_mask.scatter_(0, predicted_positions - 1, True)
+                    boundary_positions = teacher_positions if self.event_boundary_use_teacher_for_writes else predicted_positions
+                    if boundary_logits.numel() > 0:
+                        boundary_losses.append(F.binary_cross_entropy_with_logits(boundary_logits, teacher_targets))
+                else:
+                    boundary_score_tensor, teacher_targets, boundary_positions = self._build_event_teacher_targets(
+                        token_states,
+                        token_count,
+                        max_segments,
+                        boundary_strength,
+                    )
+                    if boundary_positions.numel() > 0:
+                        predicted_mask.scatter_(0, boundary_positions - 1, True)
                 boundaries = torch.cat((
                     torch.tensor([0], device=x.device, dtype=torch.long),
                     boundary_positions,
                     torch.tensor([token_count], device=x.device, dtype=torch.long),
                 ))
 
-            if novelty.numel() > 0:
-                boundary_score_means.append(float(novelty.mean().item()))
-                boundary_score_maxes.append(float(novelty.max().item()))
+            if boundary_score_tensor.numel() > 0:
+                boundary_score_means.append(float(boundary_score_tensor.mean().item()))
+                boundary_score_maxes.append(float(boundary_score_tensor.max().item()))
+                boundary_prediction_means.append(float(boundary_score_tensor.mean().item()))
+                boundary_prediction_fractions.append(float(predicted_mask.float().mean().item()))
+                boundary_teacher_fractions.append(float(teacher_targets.mean().item()))
+                boundary_teacher_agreements.append(self._compute_event_teacher_agreement(predicted_mask, teacher_targets))
             else:
                 boundary_score_means.append(0.0)
                 boundary_score_maxes.append(0.0)
+                boundary_prediction_means.append(0.0)
+                boundary_prediction_fractions.append(0.0)
+                boundary_teacher_fractions.append(0.0)
+                boundary_teacher_agreements.append(1.0)
 
             segments = []
             segment_utilities = []
@@ -595,10 +707,18 @@ class RetrievalMemory(nn.Module):
                     continue
                 segment = token_states[start_idx:end_idx]
                 summary = self._project_event_summary(segment.mean(dim=0))
-                left_boundary = novelty[start_idx - 1] if start_idx > 0 and novelty.numel() > 0 else token_states.new_zeros(())
-                right_boundary = novelty[end_idx - 1] if end_idx < token_count and novelty.numel() > 0 else token_states.new_zeros(())
-                if end_idx - start_idx > 1 and novelty.numel() > 0:
-                    internal_novelty = novelty[start_idx:end_idx - 1].mean()
+                left_boundary = (
+                    boundary_score_tensor[start_idx - 1]
+                    if start_idx > 0 and boundary_score_tensor.numel() > 0
+                    else token_states.new_zeros(())
+                )
+                right_boundary = (
+                    boundary_score_tensor[end_idx - 1]
+                    if end_idx < token_count and boundary_score_tensor.numel() > 0
+                    else token_states.new_zeros(())
+                )
+                if end_idx - start_idx > 1 and boundary_score_tensor.numel() > 0:
+                    internal_novelty = boundary_score_tensor[start_idx:end_idx - 1].mean()
                 else:
                     internal_novelty = token_states.new_zeros(())
                 utility = 0.5 * (left_boundary + right_boundary) + 0.5 * internal_novelty
@@ -643,16 +763,29 @@ class RetrievalMemory(nn.Module):
             selected_segment_counts.append(float(selected_count))
             summary_utilizations.append(float(selected_count) / float(segment_count))
 
+        if boundary_losses:
+            boundary_loss = torch.stack(boundary_losses).mean()
+            self.last_event_aux_losses['memory_event_boundary_loss'] = boundary_loss
+        elif self.use_event_segmented_memory and self.event_boundary_mode == 'learned_boundary_head':
+            boundary_loss = torch.zeros((), device=x.device, dtype=x.dtype)
+            self.last_event_aux_losses['memory_event_boundary_loss'] = boundary_loss
+        else:
+            boundary_loss = torch.zeros((), device=x.device, dtype=x.dtype)
+
         self.last_event_metrics = {
             'memory/event_segments': torch.tensor(segment_counts, device=x.device, dtype=x.dtype).mean(),
             'memory/event_selected_segments': torch.tensor(selected_segment_counts, device=x.device, dtype=x.dtype).mean(),
             'memory/event_boundary_fraction': torch.tensor(boundary_fractions, device=x.device, dtype=x.dtype).mean(),
             'memory/event_boundary_score_mean': torch.tensor(boundary_score_means, device=x.device, dtype=x.dtype).mean(),
             'memory/event_boundary_score_max': torch.tensor(boundary_score_maxes, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_boundary_prediction_mean': torch.tensor(boundary_prediction_means, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_boundary_prediction_fraction': torch.tensor(boundary_prediction_fractions, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_boundary_teacher_fraction': torch.tensor(boundary_teacher_fractions, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_boundary_loss': boundary_loss.detach(),
             'memory/event_summary_utilization': torch.tensor(summary_utilizations, device=x.device, dtype=x.dtype).mean(),
             'memory/event_mean_span': torch.tensor(mean_spans, device=x.device, dtype=x.dtype).mean(),
             'memory/event_slot_utilization': torch.tensor(0.0, device=x.device, dtype=x.dtype),
-            'memory/event_teacher_agreement': torch.tensor(1.0, device=x.device, dtype=x.dtype),
+            'memory/event_teacher_agreement': torch.tensor(boundary_teacher_agreements, device=x.device, dtype=x.dtype).mean(),
         }
         return event_summaries, event_valid
 
@@ -843,6 +976,7 @@ class RetrievalMemory(nn.Module):
             event_summaries, event_valid = self._build_event_summaries(x.detach())
         else:
             self.last_event_metrics = self._get_default_event_metrics(x.device)
+            self.last_event_aux_losses = {}
         q = self.query(x)
         controller_mask, controller_entropy = self._compute_controller_mask(x)
         local_retrieved, local_topk_indices, local_topk_weights, _, local_topk = self._retrieve_from_slots(q, local_slots)
@@ -1090,6 +1224,7 @@ class RetrievalMemory(nn.Module):
                     external_logits,
                     external_teacher_mask,
                 )
+            aux_losses.update(self.last_event_aux_losses)
 
         return output, metrics, aux_losses
 
@@ -1160,10 +1295,13 @@ class GPTConfig:
     episodic_memory_weight: float = 0.0
     use_event_segmented_memory: bool = False
     event_boundary_mode: str = 'hidden_state_novelty'
+    event_boundary_teacher_mode: str = 'hidden_state_novelty'
     event_max_segments: int = 0
     event_summary_dim: int = 0
     event_write_topk: int = 0
     event_boundary_weight: float = 0.0
+    event_boundary_head_weight: float = 0.0
+    event_boundary_use_teacher_for_writes: bool = False
     use_memory_local_learning: bool = False
     memory_local_learning_weight: float = 0.0
     use_memory_utility_learning: bool = False
@@ -1605,6 +1743,8 @@ class GPT(nn.Module):
                         aux_weight = self.config.memory_local_learning_weight
                     if name == 'memory_utility_prediction_loss' and aux_weight == 0.0:
                         aux_weight = self.config.memory_utility_learning_weight
+                    if name == 'memory_event_boundary_loss' and aux_weight == 0.0:
+                        aux_weight = self.config.event_boundary_head_weight
                     if name == 'memory_replay_consolidation_loss' and aux_weight == 0.0:
                         aux_weight = self.config.memory_replay_weight
                     if aux_weight != 0.0:

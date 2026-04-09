@@ -1472,3 +1472,48 @@ Next implementation target:
 1. keep `memory_slots=32, memory_topk=4` as the retrieval baseline
 2. benchmark explicit memory-controller routing against retrieval-only
 3. only after that revisit more external memory designs
+
+
+## Prototype B Heuristic Event-Segmentation Follow-up
+
+Compared runs:
+
+- the best heuristic Prototype B run with `event_boundary_weight=1.5`, `event_write_topk=4`
+- a stricter write-pruned variant with `event_boundary_weight=2.0`, `event_write_topk=3`
+- a later adaptive peak-based spaced-boundary heuristic on top of the same Prototype B branch
+- the replay reference run at about `2.1702` validation loss after `2000` steps
+
+Observed result:
+
+- the strongest heuristic Prototype B run reached about `2.1825` validation loss at `2000` steps
+- the stricter `w3 / bw2.0` variant regressed to about `2.2294`
+- the later adaptive peak-based heuristic reduced average event count to about `4.44`
+- that same adaptive run increased mean event span to about `59.27`
+- the adaptive heuristic therefore fixed the earlier “disguised fixed partition” problem
+- however, the adaptive heuristic still reached only about `2.2006` validation loss at `2000` steps
+
+Interpretation:
+
+- Prototype B heuristic segmentation is now structurally real rather than a nearly fixed `8`-way split
+- that structural improvement did not translate into a new quality win
+- replay remains the stronger validated reference at `2000` steps
+- the correct next step is no longer another tiny heuristic sweep
+- the next proper research move is a learned boundary head trained against the heuristic teacher
+
+
+## Learned Boundary-Head Prototype Added
+
+Implemented:
+
+- a learned `event_boundary_head` path for Prototype B
+- heuristic-teacher distillation targets for event boundaries
+- optional teacher-forced writes so learned-head training and learned-head inference can be benchmarked separately
+- explicit metrics for predicted boundary fraction, teacher boundary fraction, teacher agreement, and event boundary loss
+
+Why this matters:
+
+- this turns Prototype B from heuristic tuning into a controlled research branch
+- it lets the repo compare three meaningful conditions instead of one:
+  - heuristic segmentation control
+  - learned head with teacher-forced writes
+  - learned head with autonomous predicted writes

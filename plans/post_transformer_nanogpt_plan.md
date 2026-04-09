@@ -34,6 +34,7 @@ How this affects the plan:
 - sparse routing is still a long-term goal, but it is no longer the immediate next experiment family
 - local learning signals are paused until a stronger memory hierarchy exists underneath them
 - the next prototype should change the unit of memory itself rather than continue small replay sweeps
+- heuristic Prototype B segmentation is now structurally real but still not a quality win, so the next serious step is a learned boundary head rather than more tiny heuristic sweeps
 - the current best validated branch is the dense episodic retrieval winner with `retrieval_lr_scale=15.0`, `episodic_memory_weight=0.0625`, `episodic_memory_slots=64`, `episodic_memory_topk=2`, and `stream_eval_warmup_iters=64`
 
 
@@ -1202,6 +1203,21 @@ Failure criteria:
 - segmentation adds complexity but produces no memory compression advantage
 - summaries are too coarse and hurt quality sharply
 - the learned boundary head collapses to trivial always-write or never-write behavior
+
+Observed heuristic results so far:
+
+- the best heuristic Prototype B run reached about `2.1825` validation loss at `2000` steps using `event_boundary_weight=1.5` and `event_write_topk=4`
+- that remained worse than the replay-based reference at about `2.1702`
+- a more adaptive peak-based heuristic later reduced event count to about `4.44` and increased mean span to about `59.27`, proving the mechanism was no longer a disguised fixed `8`-way partition
+- however, that more honest segmentation still reached only about `2.2006` at `2000` steps
+- current read: heuristic segmentation can now create meaningful events, but heuristic tuning alone is not enough to beat replay or the locked winner
+
+Updated execution guidance:
+
+1. stop spending budget on additional tiny heuristic threshold sweeps
+2. document `2.1825` as the best heuristic Prototype B benchmark
+3. move to a learned boundary head trained against the heuristic teacher
+4. evaluate that learned head with a more formal control stack rather than one-off config nudges
 
 Why this is breakthrough-level:
 

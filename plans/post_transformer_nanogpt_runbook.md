@@ -99,6 +99,26 @@ Replay status update:
 - current interpretation: replay is now a validated viable substrate, not yet a clear new standalone winner
 - current recommendation: stop spending time on tiny replay sweeps and move the main implementation effort to event segmentation and chunked episodic memory
 
+Prototype B heuristic status update:
+
+- the best heuristic event-segmentation run so far reached about `2.1825` validation loss at `2000` steps with `event_boundary_weight=1.5` and `event_write_topk=4`
+- a later peak-based spaced-boundary heuristic reduced the average event count to about `4.44` and increased the mean span to about `59.27`, confirming that segmented writes are now structurally real rather than a disguised fixed partition
+- that adaptive heuristic still reached only about `2.2006` at `2000` steps
+- current interpretation: heuristic event segmentation is now behaviorally credible but still not competitive enough to justify more small heuristic sweeps
+- next recommendation: move to a learned boundary head trained against the heuristic teacher and benchmark it against both the best heuristic Prototype B run and the replay reference
+
+Learned boundary-head research protocol:
+
+1. keep the best heuristic Prototype B run (`2.1825`) as the segmentation control
+2. run a learned-head distillation control with heuristic teacher forcing enabled for writes
+3. run a learned-head autonomous-write variant with the same teacher loss weight
+4. compare validation loss, event count, mean span, teacher fraction, predicted fraction, teacher agreement, and iteration time
+
+Critical anti-goal:
+
+- do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed
+- only promote the learned-head branch if it improves either quality or memory-write efficiency relative to the best heuristic control
+
 Important anti-goal:
 
 - do not restart broad sparse-routing or local-learning coefficient sweeps before the memory hierarchy is stronger
