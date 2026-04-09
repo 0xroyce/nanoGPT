@@ -1564,3 +1564,25 @@ Next discriminator chosen:
 - reduce `stream_eval_warmup_iters` to `32` to match the smaller episodic bank
 - compare replay versus autonomous learned segmentation under that tighter memory budget
 - `run_learned_boundary_head_benchmark.sh` now supports this via the `episodic32` profile
+
+## Reduced-Budget Result And Long-Context Next Step
+
+Observed outcome:
+
+- replay with the `episodic32` profile reached `1.4623`, `1.4594`, and `1.4651` at `5000` steps, averaging about `1.4623`
+- autonomous learned segmentation with the `episodic32` profile reached `1.4671`, `1.4707`, and `1.4868`, averaging about `1.4749`
+- replay therefore beat autonomous learned segmentation by about `0.0126` on the three-seed mean
+
+Interpretation:
+
+- the reduced-capacity stress test did separate the branches, but in replay's favor
+- learned segmentation did not degrade more gracefully than replay under a tighter episodic bank
+- that makes replay the stronger branch for robustness under storage pressure, while learned segmentation remains parity-class only on the default-budget benchmark
+
+Next discriminator chosen:
+
+- stop spending more budget on reduced-capacity reruns, because that question is now answered
+- move to a matched-token longer-context benchmark with `block_size=512` and `batch_size=4`
+- keep `gradient_accumulation_steps=4` so tokens per optimizer step stay fixed
+- scale `stream_eval_warmup_iters` to `128` for the longer streaming context
+- `run_learned_boundary_head_benchmark.sh` now supports this via the `longctx512` profile

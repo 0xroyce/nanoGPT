@@ -1258,6 +1258,34 @@ Next research discriminator:
 4. reduce `stream_eval_warmup_iters` to `32` for fairness with the smaller episodic bank
 5. only promote learned segmentation further if it degrades more gracefully than replay under that tighter budget
 
+Observed reduced-budget outcome:
+
+- with `episodic_memory_slots=32` and `stream_eval_warmup_iters=32`, replay reached `1.4623`, `1.4594`, and `1.4651` at `5000` steps, averaging about `1.4623`
+- under that same reduced-budget setting, autonomous learned segmentation reached `1.4671`, `1.4707`, and `1.4868`, averaging about `1.4749`
+- replay therefore beat autonomous learned segmentation by about `0.0126` on the three-seed mean
+- relative to the default-budget `5000` averages, replay degraded by about `0.2327` while autonomous learned segmentation degraded by about `0.2458`
+
+Updated conclusion:
+
+- learned segmentation did not degrade more gracefully than replay under tighter episodic capacity
+- replay is now the stronger branch when the episodic bank is constrained
+- event segmentation remains behaviorally meaningful, but it is still missing a quality or robustness win in the regime where it was most expected to help
+
+Next research discriminator:
+
+1. keep replay and autonomous learned segmentation as the two branches worth carrying forward
+2. stop spending more budget on reduced-capacity reruns, because that question is now answered
+3. move to a matched-token longer-context benchmark instead
+4. compare replay versus autonomous learned segmentation at `block_size=512` with `batch_size=4`
+5. keep `gradient_accumulation_steps=4` so tokens per optimizer step stay matched to the current `256 x 8` setup
+6. use `stream_eval_warmup_iters=128` so the evaluation warmup scales with the longer streaming context
+
+Why this is now the right test:
+
+- reduced-budget stress already told us that segmentation is not the better compression policy under a tighter episodic bank
+- if segmentation helps at all, the remaining most plausible regime is longer temporal structure rather than smaller storage capacity
+- a matched-token `512`-context comparison tests that hypothesis cleanly without conflating any result with a raw compute-budget change
+
 Why this is breakthrough-level:
 
 - if the right unit of memory is the event rather than the token span, this could reduce both compute and memory traffic in a more fundamental way than attention sparsity

@@ -25,6 +25,14 @@ case "$profile" in
       --stream_eval_warmup_iters=32
     )
     ;;
+  longctx512)
+    profile_suffix="_longctx512"
+    profile_args=(
+      --batch_size=4
+      --block_size=512
+      --stream_eval_warmup_iters=128
+    )
+    ;;
   *)
     echo "Unknown profile: $profile"
     exit 1

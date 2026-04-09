@@ -167,6 +167,33 @@ Runner support:
   - `default`
   - `episodic32`
 
+Reduced-budget outcome:
+
+- replay with `episodic32` reached `1.4623`, `1.4594`, and `1.4651` at `5000` steps, averaging about `1.4623`
+- autonomous learned segmentation with `episodic32` reached `1.4671`, `1.4707`, and `1.4868`, averaging about `1.4749`
+- interpretation: the learned-head branch does not degrade more gracefully than replay under tighter episodic capacity
+
+Updated recommendation:
+
+1. keep replay as the stronger branch under reduced episodic capacity
+2. keep autonomous learned segmentation as a mechanism-valid parity branch on the default budget
+3. move to a matched-token longer-context benchmark as the next real discriminator
+
+Long-context stress protocol:
+
+1. rerun replay and autonomous learned segmentation with `block_size=512`
+2. reduce `batch_size` to `4` so tokens per optimizer step stay matched to the current `256 x 8` benchmark
+3. keep `gradient_accumulation_steps=4` and the rest of the architecture fixed
+4. scale `stream_eval_warmup_iters` to `128` for the longer streaming context
+5. compare mean validation loss plus retrieval entropy, event count, event span, and iteration time
+
+Runner support:
+
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports:
+  - `default`
+  - `episodic32`
+  - `longctx512`
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed
