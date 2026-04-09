@@ -359,6 +359,7 @@ class RetrievalMemory(nn.Module):
         self.event_max_segments = config.event_max_segments
         self.event_summary_dim = config.event_summary_dim
         self.event_write_topk = config.event_write_topk
+        self.block_size = config.block_size
         self.event_boundary_weight = config.event_boundary_weight
         self.event_boundary_head_weight = config.event_boundary_head_weight
         self.event_boundary_use_teacher_for_writes = config.event_boundary_use_teacher_for_writes
@@ -1066,7 +1067,7 @@ class RetrievalMemory(nn.Module):
         if episodic_slots is not None:
             episodic_retrieval_slots = episodic_slots
             if self.use_chunked_episodic_memory and episodic_spans is not None:
-                bounded_spans = episodic_spans.clamp(min=0, max=self.config.block_size)
+                bounded_spans = episodic_spans.clamp(min=0, max=self.block_size)
                 episodic_retrieval_slots = episodic_retrieval_slots + self.event_span_embedding(bounded_spans)
             episodic_retrieved, episodic_topk_indices, episodic_topk_weights, episodic_count, episodic_topk = self._retrieve_from_slots(
                 x,
