@@ -50,6 +50,9 @@ Status:
 - explicit high-risk neuroscience breakthrough track added to the plan
 - top two breakthrough bets translated into concrete prototype specs
 - replay-based complementary-learning prototype started
+- replay scheduling corrected so consolidation fires on the intended outer training steps
+- replay-based complementary-learning prototype benchmarked and validated as performance-neutral to competitive
+- event segmentation and chunked episodic memory promoted as the next primary prototype
 
 
 ## Plan Updates
@@ -75,6 +78,15 @@ Updated the v2 plan again after the branch winner stabilized to reflect:
 - concrete prototype specs for the top two breakthrough bets:
   - replay-based complementary learning systems
   - event segmentation and chunked episodic memory
+
+Updated the v2 plan and runbook again after replay validation to reflect:
+
+- replay scheduling is now fixed and replay stays disabled during evaluation
+- the best replay setting so far is `memory_replay_weight=0.01`, `memory_replay_every=32`, `memory_replay_batch_size=4`
+- two matched `5000`-step replay runs reached about `1.2249` and `1.2159`
+- the replay `5000`-step average is about `1.2204`, effectively tied with the frozen winner average of about `1.2192`
+- replay should now be treated as a validated viable substrate rather than a failed branch
+- event segmentation and chunked episodic memory is now the next primary prototype to implement
 
 
 ## Code Changes
@@ -299,6 +311,28 @@ What changed:
 - added a first retrieval-specific auxiliary objective: `retrieval_entropy_loss`
 - added a retrieval-target consistency objective: `retrieval_consistency_loss`
 - auxiliary losses are now combined into the returned scalar loss when `use_aux_losses=True`
+
+
+### 10. Replay scheduling correction
+
+Updated:
+
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py)
+- [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+What changed:
+
+- removed replay scheduling from the model-internal forward counter
+- added explicit training-loop control so replay fires on the intended outer optimizer iteration
+- constrained replay to the last microstep of the accumulation cycle
+- disabled replay during evaluation so validation loss remains apples-to-apples
+- preserved replay metrics and loss reporting for training-time inspection
+
+Why this mattered:
+
+- the first replay prototype was live, but its schedule was not aligned with the outer training iteration
+- that made replay harder to reason about and partially obscured it in normal log cadence
+- correcting the schedule turned replay into a properly testable systems feature rather than a noisy implementation detail
 
 
 ## Phase 3 Benchmark Result
@@ -1284,6 +1318,41 @@ Interpretation:
 - increasing episodic capacity beyond `64` slots did not help, and broadening episodic reads to `topk=4` also hurt quality
 - `retrieval_lr_scale=15.0` now looks like the decisive local optimum for this sweep, with `16.0`, `18.0`, and `20.0` all clearly worse
 - the third `x15` replicate landed in-family, so the next clean step should freeze `retrieval_lr_scale=15.0` and move to a new axis
+
+
+## Replay Consolidation Validation Result
+
+Dataset used:
+
+- `openwebtext`
+
+Compared runs:
+
+- locked dense episodic winner with `retrieval_lr_scale=15.0`, `episodic_memory_weight=0.0625`, `episodic_memory_slots=64`, `episodic_memory_topk=2`
+- replay consolidation with `memory_replay_weight=0.05`, `memory_replay_every=32`, `memory_replay_batch_size=4`
+- replay consolidation with `memory_replay_weight=0.01`, `memory_replay_every=64`, `memory_replay_batch_size=4`
+- replay consolidation with `memory_replay_weight=0.01`, `memory_replay_every=32`, `memory_replay_batch_size=4`
+- exact `5000`-step replicate of the viable replay setting
+
+Observed result:
+
+- replay scheduling was confirmed live after the training-loop fix, with replay batch size and replay loss appearing when replay was forced on
+- replay `weight=0.05, every=32` reached about `2.2293` validation loss at `2000` steps
+- replay `weight=0.01, every=64` reached about `2.2422` validation loss at `2000` steps
+- replay `weight=0.01, every=32` improved to about `2.1702` validation loss at `2000` steps
+- the first full `5000`-step replay run at `0.01 / every 32 / batch 4` reached about `1.2249`
+- the exact `5000`-step replay replicate reached about `1.2159`
+- the replay `5000`-step average is therefore about `1.2204`
+- the frozen non-replay winner average remained about `1.2192`
+- the strongest frozen single run remained about `1.2116`
+
+Interpretation:
+
+- replay is now clearly real, stable, and compatible with the locked winner
+- this is the first neuroscience-inspired complementary-learning branch in this repo to land in the same quality band as the winner instead of collapsing
+- replay did not produce a decisive new best result, so it should not replace the frozen baseline
+- replay is now validated as a viable substrate for later memory-hierarchy work
+- the correct next move is to stop tiny replay sweeps and shift the main implementation effort to event segmentation and chunked episodic memory
 
 
 ## Phase 1 Benchmark Result

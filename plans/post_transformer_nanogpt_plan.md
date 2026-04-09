@@ -21,16 +21,19 @@ Current strongest beliefs:
 
 1. retrieval should be treated as primary memory, not just a helper feature
 2. selective memory writes and consolidation now look more promising than naive sparsity sweeps
-3. multi-timescale consolidation is a core systems idea, not a polish feature
-4. local learning remains an open research axis, but two current formulations failed on the locked winner
-5. richer predictive objectives still matter, but they should grow out of the retrieval path instead of competing with it
+3. replay-based consolidation is now validated as a neutral-to-competitive substrate on the locked winner
+4. multi-timescale consolidation is a core systems idea, not a polish feature
+5. local learning remains an open research axis, but two current formulations failed on the locked winner
+6. richer predictive objectives still matter, but they should grow out of the retrieval path instead of competing with it
 
 How this affects the plan:
 
 - retrieval-first memory remains the top-tier direction
+- replay and consolidation have moved from speculation to a viable substrate, even though they are not yet a clear standalone win
 - multi-timescale learning stays in the roadmap, but now needs a memory-hierarchy expression rather than optimizer-only tuning
 - sparse routing is still a long-term goal, but it is no longer the immediate next experiment family
 - local learning signals are paused until a stronger memory hierarchy exists underneath them
+- the next prototype should change the unit of memory itself rather than continue small replay sweeps
 - the current best validated branch is the dense episodic retrieval winner with `retrieval_lr_scale=15.0`, `episodic_memory_weight=0.0625`, `episodic_memory_slots=64`, `episodic_memory_topk=2`, and `stream_eval_warmup_iters=64`
 
 
@@ -1118,6 +1121,18 @@ Failure criteria:
 - replay destabilizes the winner
 - replay overhead is too large relative to the quality gain
 
+Current status:
+
+- replay scheduling is now corrected so replay fires on the outer training iteration and stays disabled during evaluation
+- early `2000`-step pilots established that `memory_replay_weight=0.01`, `memory_replay_every=32`, and `memory_replay_batch_size=4` is the only credible region tested so far
+- stronger replay at `memory_replay_weight=0.05` regressed to about `2.2293` at `2000` steps
+- gentler replay at `memory_replay_weight=0.01` and `memory_replay_every=64` also regressed to about `2.2422` at `2000` steps
+- the viable `0.01 / every 32 / batch 4` replay setting reached about `2.1702` at `2000` steps
+- two matched `5000`-step replay runs then reached about `1.2249` and `1.2159`
+- the replay `5000`-step average is therefore about `1.2204`, effectively tied with the frozen winner average of about `1.2192`
+- current read: replay is now a validated viable substrate, but not yet a clear new winner
+- current execution guidance: stop grinding tiny replay sweeps and carry replay forward as an optional memory-hierarchy component under later prototypes
+
 Why this is breakthrough-level:
 
 - it would turn memory into a true fast-learning system and weights into a slower-learning system
@@ -1194,24 +1209,21 @@ Why this is breakthrough-level:
 
 ## Immediate Recommendation From The Top Two
 
-If only one breakthrough prototype is implemented next, it should be:
+If only one breakthrough prototype is implemented next, it should now be:
 
-1. replay-based complementary learning systems
-
-Why:
-
-- it is closer to the current winner
-- it does not require introducing a new segmentation head immediately
-- it directly attacks the single-timescale learning problem
-
-If a second prototype is started after that, it should be:
-
-2. event segmentation and chunked episodic memory
+1. event segmentation and chunked episodic memory
 
 Why:
 
-- it is the strongest non-average bet on changing the unit of memory itself
-- if it works, it could matter more than another generic sparsity attempt
+- replay has already passed the initial viability gate and can now remain as an optional substrate
+- the next highest-signal unknown is whether changing the unit of memory from token-like slots to event summaries improves write quality
+- this is the cleanest next attempt to improve memory structure rather than just memory timing
+
+Prototype A should remain available underneath that work:
+
+- keep replay and consolidation in the harness
+- use the validated `memory_replay_weight=0.01`, `memory_replay_every=32`, `memory_replay_batch_size=4` setting as the current optional substrate
+- only resume dedicated replay sweeps if event-segmented memory clearly benefits from replay or exposes a new failure mode
 
 ### Radical sparsity in weight tensors
 
@@ -1411,10 +1423,10 @@ Important note:
 
 ### Immediate Coding Order
 
-1. selective episodic write gate on top of the locked winner
-2. short-run write-policy comparison at `2000` steps
-3. replay / consolidation prototype only if selective writes show promise
-4. compact recurrent state only after replay direction is clearer
+1. heuristic event segmentation and chunked episodic memory on top of the locked winner
+2. short-run `2000`-step parity pilot for segmented memory versus the frozen episodic winner
+3. learned event-boundary head only if the heuristic segmentation pass is stable
+4. selective write gates, replay reuse, or compact recurrent state only after segmented memory behavior is understood
 
 ### Success Criteria for Phase 7
 

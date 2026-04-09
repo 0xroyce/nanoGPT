@@ -77,10 +77,11 @@ The next phase should be guided by the current strongest neuroscience-inspired c
 
 That means the immediate next experiments should prioritize:
 
-1. selective episodic writes driven by surprise, novelty, or utility
-2. replay and consolidation across timescales
-3. compact working memory / recurrent state
-4. richer memory-centered objectives only after the memory substrate improves
+1. event segmentation and chunked episodic memory
+2. selective episodic writes driven by surprise, novelty, or utility
+3. replay and consolidation across timescales as an optional substrate
+4. compact working memory / recurrent state
+5. richer memory-centered objectives only after the memory substrate improves
 
 Highest-upside breakthrough prototypes now specified in the main plan:
 
@@ -88,6 +89,15 @@ Highest-upside breakthrough prototypes now specified in the main plan:
 2. event segmentation and chunked episodic memory
 
 Those prototype specs live in [post_transformer_nanogpt_plan.md](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/plans/post_transformer_nanogpt_plan.md) and should be treated as the next implementation candidates after the locked winner.
+
+Replay status update:
+
+- the replay scheduling path is now fixed and evaluation keeps replay disabled
+- the best replay setting tested so far is `memory_replay_weight=0.01`, `memory_replay_every=32`, `memory_replay_batch_size=4`
+- that replay setting reached about `1.2249` and `1.2159` in two matched `5000`-step runs
+- replay therefore averages about `1.2204` at `5000` steps, effectively tied with the frozen winner average of about `1.2192`
+- current interpretation: replay is now a validated viable substrate, not yet a clear new standalone winner
+- current recommendation: stop spending time on tiny replay sweeps and move the main implementation effort to event segmentation and chunked episodic memory
 
 Important anti-goal:
 
@@ -493,6 +503,31 @@ Current best validated setting:
 - `memory_retrieval_weight=1.0`
 - `use_multiscale_optim=True`
 - `retrieval_lr_scale=2.0`
+
+### Replay-consolidation benchmark
+
+Validated viable replay setting on top of the locked episodic winner:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=5000 --lr_decay_iters=5000 --warmup_iters=100 --eval_interval=500 --eval_iters=50 --log_interval=16 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=64 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=15.0 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.0625 --use_memory_replay_consolidation=True --memory_replay_buffer_size=128 --memory_replay_every=32 --memory_replay_batch_size=4 --memory_replay_weight=0.01 --memory_replay_utility_mode=mean_loss --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x15-episodic-w0p0625-replay0p01-b128-e32-rb4-5k
+```
+
+Observed result:
+
+- replay `weight=0.05, every=32` regressed to about `2.2293` at `2000` steps
+- replay `weight=0.01, every=64` regressed to about `2.2422` at `2000` steps
+- replay `weight=0.01, every=32` improved to about `2.1702` at `2000` steps
+- the first full `5000`-step replay run reached about `1.2249`
+- the exact `5000`-step replicate reached about `1.2159`
+- the replay `5000`-step average is therefore about `1.2204`
+- the frozen non-replay winner average remains about `1.2192`, with best single run about `1.2116`
+
+Interpretation:
+
+- replay is now live, stable, and competitive with the frozen winner
+- this is no longer a failed neuroscience-inspired branch
+- it is also not yet a clear outright improvement over the locked baseline
+- treat replay as a validated optional substrate for the next prototype rather than the main tuning target
 
 ### Multi-objective retrieval benchmark
 
@@ -963,7 +998,7 @@ Current read:
 - surprise weighting is now a trusted negative result on both the earlier weaker baseline and the canonical corrected `x8` baseline
 - binary hard-token selection and soft surprise weighting should both be deprioritized
 - the next branch should stop changing the loss and return to architectural or memory-system changes
-- the next implemented architectural probe should be local attention on top of the locked episodic winner, since local-learning-signal machinery is not yet in the harness and subtractive sparse FFN routing is now ruled out
+- the next implemented architectural probe should be event segmentation and chunked episodic memory on top of the locked episodic winner, with replay left available as an optional substrate
 
 Full repo-style GPT-2 reproduction config:
 
