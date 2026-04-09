@@ -272,6 +272,18 @@ Updated recommendation:
 3. if replay is combined with chunked memory again, do it with a delayed schedule so replay starts only after the chunk policy has had time to form
 4. if that delayed hybrid also fails, retire the hybrid path quickly instead of burning more routine benchmark budget
 
+Delayed-replay follow-up:
+
+- `train.py` now supports `memory_replay_start_iter` to gate replay on outer training iteration rather than only frequency
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_replay_delayed`
+- the first delayed recipe uses the same replay schedule as the always-on hybrid but waits until iteration `2000` before replay activates
+
+Recommended next pilot:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous_replay_delayed 1337 5000
+```
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

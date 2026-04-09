@@ -100,6 +100,7 @@ memory_replay_buffer_size = 128
 memory_replay_every = 32
 memory_replay_batch_size = 4
 memory_replay_weight = 0.0
+memory_replay_start_iter = 0
 memory_replay_utility_mode = 'mean_loss'
 use_multiscale_optim = False
 retrieval_lr_scale = 1.0
@@ -647,6 +648,7 @@ while True:
         use_memory_replay_consolidation
         and memory_replay_weight > 0.0
         and memory_replay_every > 0
+        and iter_num >= memory_replay_start_iter
         and ((iter_num + 1) % memory_replay_every == 0)
     )
     for micro_step in range(gradient_accumulation_steps):

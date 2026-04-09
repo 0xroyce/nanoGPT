@@ -1667,3 +1667,17 @@ Next recommendation:
 - if hybridization continues, make replay phase-aware rather than always-on
 - the next plausible version is delayed replay that switches on only after chunked summaries and boundaries have stabilized
 - if that delayed schedule also fails, retire this hybrid family and move on
+
+## Delayed Hybrid Follow-Up
+
+Implemented:
+
+- a new training flag `memory_replay_start_iter` in [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+- delayed replay gating in the outer training loop so replay can start only after a chosen iteration
+- benchmark runner support for `chunked_autonomous_replay_delayed` in [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh)
+
+Initial delayed recipe:
+
+- reuse the validated replay setting `weight=0.01`, `every=32`, `batch_size=4`
+- keep the chunked autonomous write policy unchanged
+- delay replay onset until iteration `2000` so chunked memory can learn first

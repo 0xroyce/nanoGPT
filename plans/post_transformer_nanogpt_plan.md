@@ -1373,6 +1373,12 @@ Next recommendation:
 3. the most plausible next version is delayed replay, where chunked episodic memory learns first and replay turns on only after the chunk policy has stabilized
 4. if that delayed schedule also fails, retire this hybrid family and move on to a different memory architecture
 
+Implemented follow-up:
+
+- `train.py` now supports `memory_replay_start_iter`, which delays replay activation until a chosen outer training iteration
+- the benchmark runner now exposes `chunked_autonomous_replay_delayed` as the first schedule-aware hybrid
+- the initial delayed-hybrid recipe keeps the same replay strength as before but starts replay only at iteration `2000`
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
