@@ -1540,3 +1540,27 @@ Process update:
 - the next step is no longer another heuristic sweep
 - the next step is a matched-seed replication study comparing replay versus autonomous learned-head
 - `train.py` now exposes a configurable `seed`, and [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) provides a reproducible benchmark wrapper for replay, heuristic, teacher-forced, and autonomous variants
+
+
+## Matched-Seed Replication And Next Discriminator
+
+Observed outcome:
+
+- the autonomous learned head averaged about `2.1923` versus replay at about `2.2120` across three matched `2000`-step seeds
+- that short-run win did not open up at `5000` steps
+- at `5000` steps, replay averaged about `1.2296`
+- at `5000` steps, the autonomous learned head averaged about `1.2291`
+- the remaining gap is about `0.0005`, which should be treated as parity rather than a true new winner
+
+Interpretation:
+
+- the learned boundary head is now a validated parity-class branch
+- its segmentation behavior remains healthy over long training, so the mechanism is real
+- the default-budget OWT benchmark is no longer separating replay from learned segmentation strongly enough to justify more same-regime reruns
+
+Next discriminator chosen:
+
+- move to a reduced-budget stress test with `episodic_memory_slots=32`
+- reduce `stream_eval_warmup_iters` to `32` to match the smaller episodic bank
+- compare replay versus autonomous learned segmentation under that tighter memory budget
+- `run_learned_boundary_head_benchmark.sh` now supports this via the `episodic32` profile

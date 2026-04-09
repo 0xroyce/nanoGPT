@@ -140,6 +140,33 @@ Recommended runner:
 
 - use [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) to standardize the benchmark commands and log names
 
+Matched-seed replication outcome:
+
+- replay reached `2.2464`, `2.2217`, and `2.1678` at `2000` steps, averaging about `2.2120`
+- autonomous learned segmentation reached `2.2283`, `2.1464`, and `2.2023` at `2000` steps, averaging about `2.1923`
+- replay reached `1.2312`, `1.2318`, and `1.2259` at `5000` steps, averaging about `1.2296`
+- autonomous learned segmentation reached `1.2205`, `1.2312`, and `1.2357` at `5000` steps, averaging about `1.2291`
+- interpretation: the learned-head branch has a small short-run edge but only parity at `5000` steps
+
+Current recommendation:
+
+1. do not call the autonomous learned head the new overall winner yet
+2. do call it a validated parity-class branch with a real and stable segmentation policy
+3. use a tighter memory-budget stress test as the next discriminator
+
+Reduced-budget stress protocol:
+
+1. rerun replay and autonomous learned segmentation with `episodic_memory_slots=32`
+2. set `stream_eval_warmup_iters=32` to match the smaller episodic bank
+3. keep every other setting fixed
+4. compare mean validation loss, retrieval entropy, event count, event span, and degradation relative to each branch's default-budget `5000` result
+
+Runner support:
+
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports a fourth argument profile:
+  - `default`
+  - `episodic32`
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

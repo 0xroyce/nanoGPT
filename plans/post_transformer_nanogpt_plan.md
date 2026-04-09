@@ -1235,6 +1235,29 @@ Research interpretation:
 - the correct next question is not whether more heuristic tuning helps, but whether the autonomous learned-head win replicates across seeds and persists at longer horizons
 - proper testing now means seed-matched replication against replay, followed by `5000`-step confirmation if the mean advantage holds
 
+Observed matched-seed replication results:
+
+- at `2000` steps, replay averaged about `2.2120` across seeds `1337`, `1437`, and `1537`
+- at `2000` steps, the autonomous learned head averaged about `2.1923` across those same seeds
+- that gave the autonomous learned head a small but real short-run mean edge of about `0.0196`
+- at `5000` steps, replay averaged about `1.2296`
+- at `5000` steps, the autonomous learned head averaged about `1.2291`
+- that `5000`-step gap is only about `0.0005`, which is too small to claim as a new quality win
+
+Updated conclusion:
+
+- autonomous learned segmentation is now a parity-class result, not a decisive replacement for replay
+- the learned segmentation mechanism itself looks stable and real, because event counts, span lengths, and teacher agreement stay healthy over long training
+- the next meaningful question is where segmentation helps under pressure, not whether it can eke out another tiny quality delta on the default budget
+
+Next research discriminator:
+
+1. keep replay and autonomous learned segmentation as the two parity-class branches
+2. move to a reduced episodic-memory-budget benchmark rather than another default-budget rerun
+3. compare replay versus autonomous learned segmentation with `episodic_memory_slots=32`
+4. reduce `stream_eval_warmup_iters` to `32` for fairness with the smaller episodic bank
+5. only promote learned segmentation further if it degrades more gracefully than replay under that tighter budget
+
 Why this is breakthrough-level:
 
 - if the right unit of memory is the event rather than the token span, this could reduce both compute and memory traffic in a more fundamental way than attention sparsity

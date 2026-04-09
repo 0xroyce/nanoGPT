@@ -2,18 +2,38 @@
 
 set -euo pipefail
 
-if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "Usage: $0 {replay|heuristic|teacher_forced|autonomous} {seed} [max_iters]"
+if [[ $# -lt 2 || $# -gt 4 ]]; then
+  echo "Usage: $0 {replay|heuristic|teacher_forced|autonomous} {seed} [max_iters] [profile]"
   exit 1
 fi
 
 variant="$1"
 seed="$2"
 max_iters="${3:-2000}"
+profile="${4:-default}"
+
+profile_suffix=""
+profile_args=()
+
+case "$profile" in
+  default)
+    ;;
+  episodic32)
+    profile_suffix="_episodic32"
+    profile_args=(
+      --episodic_memory_slots=32
+      --stream_eval_warmup_iters=32
+    )
+    ;;
+  *)
+    echo "Unknown profile: $profile"
+    exit 1
+    ;;
+esac
 
 case "$variant" in
   replay)
-    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed${seed}_${max_iters}"
+    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4${profile_suffix}_seed${seed}_${max_iters}"
     extra_args=(
       --use_memory_replay_consolidation=True
       --memory_replay_buffer_size=128
@@ -23,7 +43,7 @@ case "$variant" in
     )
     ;;
   heuristic)
-    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_heuristic_bw1p5_w4_seed${seed}_${max_iters}"
+    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_heuristic_bw1p5_w4${profile_suffix}_seed${seed}_${max_iters}"
     extra_args=(
       --use_event_segmented_memory=True
       --event_boundary_mode=hidden_state_novelty
@@ -33,7 +53,7 @@ case "$variant" in
     )
     ;;
   teacher_forced)
-    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_learned_teacherforced_seed${seed}_${max_iters}"
+    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_learned_teacherforced${profile_suffix}_seed${seed}_${max_iters}"
     extra_args=(
       --use_event_segmented_memory=True
       --event_boundary_mode=learned_boundary_head
@@ -47,7 +67,7 @@ case "$variant" in
     )
     ;;
   autonomous)
-    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_learned_autonomous_seed${seed}_${max_iters}"
+    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_learned_autonomous${profile_suffix}_seed${seed}_${max_iters}"
     extra_args=(
       --use_event_segmented_memory=True
       --event_boundary_mode=learned_boundary_head
@@ -100,6 +120,7 @@ python train.py \
   --episodic_memory_weight=0.0625 \
   --log_experiment_metrics=True \
   --out_dir="$out_name" \
+  "${profile_args[@]}" \
   "${extra_args[@]}" | tee "$log_file"
 
 echo
