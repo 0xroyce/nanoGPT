@@ -352,6 +352,12 @@ class RetrievalMemory(nn.Module):
         self.episodic_memory_slots = config.episodic_memory_slots
         self.episodic_memory_topk = config.episodic_memory_topk
         self.episodic_memory_weight = config.episodic_memory_weight
+        self.use_event_segmented_memory = config.use_event_segmented_memory
+        self.event_boundary_mode = config.event_boundary_mode
+        self.event_max_segments = config.event_max_segments
+        self.event_summary_dim = config.event_summary_dim
+        self.event_write_topk = config.event_write_topk
+        self.event_boundary_weight = config.event_boundary_weight
         self.use_memory_local_learning = config.use_memory_local_learning
         self.memory_local_learning_weight = config.memory_local_learning_weight
         self.use_memory_utility_learning = config.use_memory_utility_learning
@@ -360,6 +366,7 @@ class RetrievalMemory(nn.Module):
         self.memory_update_during_eval = False
         self.last_router_hint = None
         self.last_memory_utility_logits = None
+        self.last_event_metrics = {}
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.external_router = nn.Linear(config.n_embd, 1, bias=config.bias)
@@ -394,6 +401,20 @@ class RetrievalMemory(nn.Module):
             self.register_buffer("episodic_memory", torch.zeros(0, self.episodic_memory_slots, config.n_embd))
             self.register_buffer("episodic_memory_valid", torch.zeros(0, self.episodic_memory_slots, dtype=torch.bool))
             self.register_buffer("episodic_memory_ptr", torch.zeros(0, dtype=torch.long))
+        if self.use_event_segmented_memory:
+            if not self.use_episodic_memory:
+                raise ValueError("use_event_segmented_memory=True requires use_episodic_memory=True")
+            if self.event_boundary_mode not in {'hidden_state_novelty', 'uniform'}:
+                raise ValueError(
+                    "event_boundary_mode must be one of {'hidden_state_novelty', 'uniform'} "
+                    "when use_event_segmented_memory=True"
+                )
+            if self.event_max_segments < 0:
+                raise ValueError("event_max_segments must be >= 0 when use_event_segmented_memory=True")
+            if self.event_summary_dim < 0:
+                raise ValueError("event_summary_dim must be >= 0 when use_event_segmented_memory=True")
+            if self.event_write_topk < 0:
+                raise ValueError("event_write_topk must be >= 0 when use_event_segmented_memory=True")
 
     def _build_memory_slots(self, x):
         # Pool the current sequence into a small number of slots so retrieval stays explicit
@@ -437,6 +458,126 @@ class RetrievalMemory(nn.Module):
         if not bool(self.episodic_memory_valid.any().item()):
             return None, None
         return self.episodic_memory, self.episodic_memory_valid
+
+    def _get_default_event_metrics(self, device):
+        return {
+            'memory/event_segments': torch.tensor(0.0, device=device),
+            'memory/event_boundary_fraction': torch.tensor(0.0, device=device),
+            'memory/event_summary_utilization': torch.tensor(0.0, device=device),
+            'memory/event_mean_span': torch.tensor(0.0, device=device),
+            'memory/event_slot_utilization': torch.tensor(0.0, device=device),
+            'memory/event_teacher_agreement': torch.tensor(0.0, device=device),
+        }
+
+    def _project_event_summary(self, summary):
+        # The first Prototype B pass keeps summaries heuristic and non-parametric.
+        # event_summary_dim is reserved for a later learned compression stage.
+        return summary
+
+    def _build_event_summaries(self, x):
+        if not self.use_event_segmented_memory:
+            self.last_event_metrics = self._get_default_event_metrics(x.device)
+            return None, None
+
+        batch_size, token_count, hidden_dim = x.shape
+        max_segments = self.event_max_segments if self.event_max_segments > 0 else self.episodic_memory_slots
+        max_segments = max(1, min(max_segments, token_count))
+        write_limit = self.event_write_topk if self.event_write_topk > 0 else max_segments
+        write_limit = max(1, min(write_limit, max_segments, self.episodic_memory_slots))
+        event_summaries = torch.zeros(batch_size, write_limit, hidden_dim, device=x.device, dtype=x.dtype)
+        event_valid = torch.zeros(batch_size, write_limit, dtype=torch.bool, device=x.device)
+        segment_counts = []
+        boundary_fractions = []
+        mean_spans = []
+        summary_utilizations = []
+
+        for batch_idx in range(batch_size):
+            token_states = x[batch_idx]
+            if token_count <= 1:
+                boundaries = torch.tensor([0, token_count], device=x.device, dtype=torch.long)
+                novelty = torch.zeros(0, device=x.device, dtype=x.dtype)
+            elif self.event_boundary_mode == 'uniform':
+                boundary_count = max_segments - 1
+                if boundary_count <= 0:
+                    boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
+                else:
+                    boundary_positions = torch.linspace(
+                        1,
+                        token_count - 1,
+                        steps=boundary_count,
+                        device=x.device,
+                    ).round().long().unique(sorted=True)
+                boundaries = torch.cat((
+                    torch.tensor([0], device=x.device, dtype=torch.long),
+                    boundary_positions,
+                    torch.tensor([token_count], device=x.device, dtype=torch.long),
+                ))
+                novelty = torch.zeros(token_count - 1, device=x.device, dtype=x.dtype)
+            else:
+                novelty = (token_states[1:] - token_states[:-1]).norm(dim=-1)
+                boundary_count = min(max_segments - 1, novelty.numel())
+                if boundary_count <= 0:
+                    boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
+                else:
+                    boundary_positions = torch.topk(novelty, k=boundary_count, dim=0).indices + 1
+                    boundary_positions = torch.sort(boundary_positions).values
+                boundaries = torch.cat((
+                    torch.tensor([0], device=x.device, dtype=torch.long),
+                    boundary_positions,
+                    torch.tensor([token_count], device=x.device, dtype=torch.long),
+                ))
+
+            segments = []
+            segment_utilities = []
+            segment_spans = []
+            for start, end in zip(boundaries[:-1], boundaries[1:]):
+                start_idx = int(start.item())
+                end_idx = int(end.item())
+                if end_idx <= start_idx:
+                    continue
+                segment = token_states[start_idx:end_idx]
+                summary = self._project_event_summary(segment.mean(dim=0))
+                left_boundary = novelty[start_idx - 1] if start_idx > 0 and novelty.numel() > 0 else token_states.new_zeros(())
+                right_boundary = novelty[end_idx - 1] if end_idx < token_count and novelty.numel() > 0 else token_states.new_zeros(())
+                utility = 0.5 * (left_boundary + right_boundary)
+                segments.append(summary)
+                segment_utilities.append(utility)
+                segment_spans.append(float(end_idx - start_idx))
+
+            segment_count = len(segments)
+            if segment_count == 0:
+                segment_counts.append(0.0)
+                boundary_fractions.append(0.0)
+                mean_spans.append(0.0)
+                summary_utilizations.append(0.0)
+                continue
+
+            segment_tensor = torch.stack(segments, dim=0)
+            utility_tensor = torch.stack(segment_utilities, dim=0)
+            segment_counts.append(float(segment_count))
+            boundary_fractions.append(float(max(segment_count - 1, 0)) / float(max(token_count - 1, 1)))
+            mean_spans.append(sum(segment_spans) / float(segment_count))
+
+            selected_count = min(write_limit, segment_count)
+            if selected_count < segment_count:
+                selected_indices = torch.topk(utility_tensor, k=selected_count, dim=0).indices
+                selected_indices = torch.sort(selected_indices).values
+                selected_segments = segment_tensor.index_select(0, selected_indices)
+            else:
+                selected_segments = segment_tensor[:selected_count]
+            event_summaries[batch_idx, :selected_count] = selected_segments
+            event_valid[batch_idx, :selected_count] = True
+            summary_utilizations.append(float(selected_count) / float(segment_count))
+
+        self.last_event_metrics = {
+            'memory/event_segments': torch.tensor(segment_counts, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_boundary_fraction': torch.tensor(boundary_fractions, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_summary_utilization': torch.tensor(summary_utilizations, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_mean_span': torch.tensor(mean_spans, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_slot_utilization': torch.tensor(0.0, device=x.device, dtype=x.dtype),
+            'memory/event_teacher_agreement': torch.tensor(1.0, device=x.device, dtype=x.dtype),
+        }
+        return event_summaries, event_valid
 
     @torch.no_grad()
     def _update_persistent_memory(self, local_slots):
@@ -482,12 +623,35 @@ class RetrievalMemory(nn.Module):
         self.external_memory_ptr.fill_(int((start + write_count) % self.external_memory_slots))
 
     @torch.no_grad()
-    def _update_episodic_memory(self, local_slots):
+    def _update_episodic_memory(self, x, local_slots, event_summaries=None, event_valid=None):
         if not self.use_episodic_memory or not (self.training or self.memory_update_during_eval):
             return
 
         batch_size = local_slots.size(0)
         self._ensure_episodic_state(batch_size, local_slots.device)
+
+        if self.use_event_segmented_memory:
+            summaries = event_summaries
+            summary_valid = event_valid
+            if summaries is None or summary_valid is None:
+                summaries, summary_valid = self._build_event_summaries(x.detach())
+            if summaries is None or summary_valid is None:
+                return
+            for batch_idx in range(batch_size):
+                valid_count = int(summary_valid[batch_idx].sum().item())
+                if valid_count <= 0:
+                    continue
+                write_count = min(valid_count, self.episodic_memory_slots)
+                write_values = summaries[batch_idx, :write_count]
+                start = int(self.episodic_memory_ptr[batch_idx].item())
+                target_indices = (
+                    torch.arange(write_count, device=write_values.device) + start
+                ) % self.episodic_memory_slots
+                self.episodic_memory[batch_idx].index_copy_(0, target_indices, write_values)
+                self.episodic_memory_valid[batch_idx].index_fill_(0, target_indices, True)
+                self.episodic_memory_ptr[batch_idx] = (start + write_count) % self.episodic_memory_slots
+            return
+
         summaries = local_slots.detach().mean(dim=1)
         batch_indices = torch.arange(batch_size, device=summaries.device)
         ptr = self.episodic_memory_ptr
@@ -512,6 +676,7 @@ class RetrievalMemory(nn.Module):
             self.episodic_memory_ptr.zero_()
         self.last_router_hint = None
         self.last_memory_utility_logits = None
+        self.last_event_metrics = {}
 
     def set_memory_update_mode(self, enabled):
         self.memory_update_during_eval = bool(enabled)
@@ -595,6 +760,12 @@ class RetrievalMemory(nn.Module):
         persistent_slots = self._get_persistent_slots(x.size(0))
         external_slots = self._get_external_slots(x.size(0))
         episodic_slots, episodic_valid = self._get_episodic_slots(x.size(0), x.device)
+        event_summaries = None
+        event_valid = None
+        if self.use_event_segmented_memory and (return_metrics or update_memory):
+            event_summaries, event_valid = self._build_event_summaries(x.detach())
+        else:
+            self.last_event_metrics = self._get_default_event_metrics(x.device)
         q = self.query(x)
         controller_mask, controller_entropy = self._compute_controller_mask(x)
         local_retrieved, local_topk_indices, local_topk_weights, _, local_topk = self._retrieve_from_slots(q, local_slots)
@@ -665,7 +836,7 @@ class RetrievalMemory(nn.Module):
         if update_memory:
             self._update_persistent_memory(local_slots)
             self._update_external_memory(local_slots)
-            self._update_episodic_memory(local_slots)
+            self._update_episodic_memory(x, local_slots, event_summaries=event_summaries, event_valid=event_valid)
 
         if not return_metrics:
             return output
@@ -810,6 +981,10 @@ class RetrievalMemory(nn.Module):
         else:
             metrics['memory/episodic_slot_utilization'] = torch.tensor(0.0, device=x.device)
             metrics['memory/episodic_valid_fraction'] = torch.tensor(0.0, device=x.device)
+        event_metrics = dict(self.last_event_metrics) if self.last_event_metrics else self._get_default_event_metrics(x.device)
+        if self.use_event_segmented_memory:
+            event_metrics['memory/event_slot_utilization'] = metrics['memory/episodic_slot_utilization']
+        metrics.update(event_metrics)
 
         aux_losses = {}
         if return_aux_losses:
@@ -906,6 +1081,12 @@ class GPTConfig:
     episodic_memory_slots: int = 0
     episodic_memory_topk: int = 1
     episodic_memory_weight: float = 0.0
+    use_event_segmented_memory: bool = False
+    event_boundary_mode: str = 'hidden_state_novelty'
+    event_max_segments: int = 0
+    event_summary_dim: int = 0
+    event_write_topk: int = 0
+    event_boundary_weight: float = 0.0
     use_memory_local_learning: bool = False
     memory_local_learning_weight: float = 0.0
     use_memory_utility_learning: bool = False
