@@ -1681,3 +1681,16 @@ Initial delayed recipe:
 - reuse the validated replay setting `weight=0.01`, `every=32`, `batch_size=4`
 - keep the chunked autonomous write policy unchanged
 - delay replay onset until iteration `2000` so chunked memory can learn first
+
+Observed delayed-hybrid outcome:
+
+- on seed `1337` at `5000` steps, replay reached about `1.2312`
+- `chunked_autonomous` reached about `1.2385`
+- `chunked_autonomous_replay_delayed` reached about `1.2391`
+- the delayed hybrid matched chunked through the first `2000` steps, then stayed very close to chunked after replay activation without converting into a better endpoint
+
+Interpretation:
+
+- delaying replay is not enough to make the chunked-plus-replay family competitive with replay
+- this closes the most plausible schedule-based fix for the current hybrid recipe
+- the family should now be retired as an active benchmark direction

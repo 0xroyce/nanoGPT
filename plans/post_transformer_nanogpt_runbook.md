@@ -284,6 +284,20 @@ Recommended next pilot:
 ./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous_replay_delayed 1337 5000
 ```
 
+Observed delayed-hybrid outcome:
+
+- at `5000` steps on seed `1337`, replay reached about `1.2312`
+- `chunked_autonomous` reached about `1.2385`
+- `chunked_autonomous_replay_delayed` reached about `1.2391`
+- the delayed schedule preserved the exact chunked curve through `2000` steps, but after replay activation it only stayed near chunked rather than improving on it
+- interpretation: delayed replay also fails to recover replay's stronger late endpoint
+
+Updated recommendation:
+
+1. retire the replay-plus-chunked hybrid family for now
+2. keep the result as a useful negative finding about composition, not a near-miss that needs more schedule tweaking
+3. move the next implementation effort to a genuinely different memory architecture
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

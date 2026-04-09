@@ -1379,6 +1379,21 @@ Implemented follow-up:
 - the benchmark runner now exposes `chunked_autonomous_replay_delayed` as the first schedule-aware hybrid
 - the initial delayed-hybrid recipe keeps the same replay strength as before but starts replay only at iteration `2000`
 
+Observed delayed-hybrid outcome:
+
+- on seed `1337` at `5000` steps, replay reached about `1.2312`
+- on that same seed, `chunked_autonomous` reached about `1.2385`
+- the delayed replay hybrid reached about `1.2391`
+- the delayed hybrid exactly matched chunked through the first `2000` steps, as intended, but then only tracked chunked closely rather than improving on it once replay turned on
+- by the endpoint it remained worse than replay and slightly worse than standalone chunked
+
+Final recommendation on this family:
+
+1. retire both the always-on and delayed replay hybrids as active benchmark candidates
+2. keep the result as a useful negative finding: simple replay composition does not rescue chunked memory in this setup
+3. stop spending further routine benchmark budget on replay-plus-chunked schedule tweaks
+4. move to a genuinely different memory architecture rather than another hybrid schedule variant
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
@@ -1390,7 +1405,8 @@ Why:
 - chunked memory already showed a real early-training sample-efficiency gain
 - replay already showed the stronger late-training and reduced-budget robustness behavior
 - the first always-on hybrid did not combine those strengths cleanly
-- the highest-signal unknown is now whether a delayed replay schedule can preserve chunked's early advantage while still borrowing replay's late-stage stability
+- the delayed replay follow-up also failed to turn chunked's early advantage into a better late endpoint
+- the next highest-signal unknown is now outside this hybrid family rather than inside another replay schedule tweak
 
 Prototype A should remain available underneath that work:
 
