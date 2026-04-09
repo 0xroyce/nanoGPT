@@ -462,7 +462,10 @@ class RetrievalMemory(nn.Module):
     def _get_default_event_metrics(self, device):
         return {
             'memory/event_segments': torch.tensor(0.0, device=device),
+            'memory/event_selected_segments': torch.tensor(0.0, device=device),
             'memory/event_boundary_fraction': torch.tensor(0.0, device=device),
+            'memory/event_boundary_score_mean': torch.tensor(0.0, device=device),
+            'memory/event_boundary_score_max': torch.tensor(0.0, device=device),
             'memory/event_summary_utilization': torch.tensor(0.0, device=device),
             'memory/event_mean_span': torch.tensor(0.0, device=device),
             'memory/event_slot_utilization': torch.tensor(0.0, device=device),
@@ -484,10 +487,15 @@ class RetrievalMemory(nn.Module):
         max_segments = max(1, min(max_segments, token_count))
         write_limit = self.event_write_topk if self.event_write_topk > 0 else max_segments
         write_limit = max(1, min(write_limit, max_segments, self.episodic_memory_slots))
+        boundary_strength = self.event_boundary_weight if self.event_boundary_weight > 0.0 else 0.5
+        write_strength = 0.5 * boundary_strength
         event_summaries = torch.zeros(batch_size, write_limit, hidden_dim, device=x.device, dtype=x.dtype)
         event_valid = torch.zeros(batch_size, write_limit, dtype=torch.bool, device=x.device)
         segment_counts = []
+        selected_segment_counts = []
         boundary_fractions = []
+        boundary_score_means = []
+        boundary_score_maxes = []
         mean_spans = []
         summary_utilizations = []
 
@@ -519,13 +527,31 @@ class RetrievalMemory(nn.Module):
                 if boundary_count <= 0:
                     boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
                 else:
-                    boundary_positions = torch.topk(novelty, k=boundary_count, dim=0).indices + 1
-                    boundary_positions = torch.sort(boundary_positions).values
+                    novelty_mean = novelty.mean()
+                    novelty_std = novelty.std(unbiased=False)
+                    boundary_threshold = novelty_mean + boundary_strength * novelty_std
+                    selected_mask = novelty >= boundary_threshold
+                    boundary_positions = torch.nonzero(selected_mask, as_tuple=False).squeeze(-1) + 1
+                    if boundary_positions.numel() == 0:
+                        top_idx = torch.argmax(novelty).view(1)
+                        boundary_positions = top_idx + 1
+                    elif boundary_positions.numel() > boundary_count:
+                        selected_scores = novelty.index_select(0, boundary_positions - 1)
+                        keep = torch.topk(selected_scores, k=boundary_count, dim=0).indices
+                        boundary_positions = boundary_positions.index_select(0, keep)
+                    boundary_positions = torch.sort(boundary_positions.unique(sorted=True)).values
                 boundaries = torch.cat((
                     torch.tensor([0], device=x.device, dtype=torch.long),
                     boundary_positions,
                     torch.tensor([token_count], device=x.device, dtype=torch.long),
                 ))
+
+            if novelty.numel() > 0:
+                boundary_score_means.append(float(novelty.mean().item()))
+                boundary_score_maxes.append(float(novelty.max().item()))
+            else:
+                boundary_score_means.append(0.0)
+                boundary_score_maxes.append(0.0)
 
             segments = []
             segment_utilities = []
@@ -539,7 +565,11 @@ class RetrievalMemory(nn.Module):
                 summary = self._project_event_summary(segment.mean(dim=0))
                 left_boundary = novelty[start_idx - 1] if start_idx > 0 and novelty.numel() > 0 else token_states.new_zeros(())
                 right_boundary = novelty[end_idx - 1] if end_idx < token_count and novelty.numel() > 0 else token_states.new_zeros(())
-                utility = 0.5 * (left_boundary + right_boundary)
+                if end_idx - start_idx > 1 and novelty.numel() > 0:
+                    internal_novelty = novelty[start_idx:end_idx - 1].mean()
+                else:
+                    internal_novelty = token_states.new_zeros(())
+                utility = 0.5 * (left_boundary + right_boundary) + 0.5 * internal_novelty
                 segments.append(summary)
                 segment_utilities.append(utility)
                 segment_spans.append(float(end_idx - start_idx))
@@ -547,6 +577,7 @@ class RetrievalMemory(nn.Module):
             segment_count = len(segments)
             if segment_count == 0:
                 segment_counts.append(0.0)
+                selected_segment_counts.append(0.0)
                 boundary_fractions.append(0.0)
                 mean_spans.append(0.0)
                 summary_utilizations.append(0.0)
@@ -558,20 +589,34 @@ class RetrievalMemory(nn.Module):
             boundary_fractions.append(float(max(segment_count - 1, 0)) / float(max(token_count - 1, 1)))
             mean_spans.append(sum(segment_spans) / float(segment_count))
 
-            selected_count = min(write_limit, segment_count)
-            if selected_count < segment_count:
-                selected_indices = torch.topk(utility_tensor, k=selected_count, dim=0).indices
-                selected_indices = torch.sort(selected_indices).values
+            utility_mean = utility_tensor.mean()
+            utility_std = utility_tensor.std(unbiased=False)
+            utility_threshold = utility_mean + write_strength * utility_std
+            selected_mask = utility_tensor >= utility_threshold
+            selected_indices = torch.nonzero(selected_mask, as_tuple=False).squeeze(-1)
+            if selected_indices.numel() == 0:
+                selected_indices = torch.argmax(utility_tensor).view(1)
+            if selected_indices.numel() > write_limit:
+                selected_scores = utility_tensor.index_select(0, selected_indices)
+                keep = torch.topk(selected_scores, k=write_limit, dim=0).indices
+                selected_indices = selected_indices.index_select(0, keep)
+            selected_indices = torch.sort(selected_indices).values
+            selected_count = int(selected_indices.numel())
+            if selected_count > 0:
                 selected_segments = segment_tensor.index_select(0, selected_indices)
             else:
-                selected_segments = segment_tensor[:selected_count]
+                selected_segments = segment_tensor[:0]
             event_summaries[batch_idx, :selected_count] = selected_segments
             event_valid[batch_idx, :selected_count] = True
+            selected_segment_counts.append(float(selected_count))
             summary_utilizations.append(float(selected_count) / float(segment_count))
 
         self.last_event_metrics = {
             'memory/event_segments': torch.tensor(segment_counts, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_selected_segments': torch.tensor(selected_segment_counts, device=x.device, dtype=x.dtype).mean(),
             'memory/event_boundary_fraction': torch.tensor(boundary_fractions, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_boundary_score_mean': torch.tensor(boundary_score_means, device=x.device, dtype=x.dtype).mean(),
+            'memory/event_boundary_score_max': torch.tensor(boundary_score_maxes, device=x.device, dtype=x.dtype).mean(),
             'memory/event_summary_utilization': torch.tensor(summary_utilizations, device=x.device, dtype=x.dtype).mean(),
             'memory/event_mean_span': torch.tensor(mean_spans, device=x.device, dtype=x.dtype).mean(),
             'memory/event_slot_utilization': torch.tensor(0.0, device=x.device, dtype=x.dtype),
