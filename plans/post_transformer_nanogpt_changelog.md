@@ -1517,3 +1517,26 @@ Why this matters:
   - heuristic segmentation control
   - learned head with teacher-forced writes
   - learned head with autonomous predicted writes
+
+
+## Learned Boundary-Head Pilot Win
+
+Observed `2000`-step pilot results:
+
+- fresh heuristic control on the learned-head codepath: about `2.3336`
+- learned head with teacher-forced writes: about `2.1384`
+- learned head with autonomous predicted writes: about `2.1006`
+- replay reference: about `2.1702`
+- best historical heuristic Prototype B run: about `2.1825`
+
+Interpretation:
+
+- the autonomous learned boundary head is the first Prototype B variant to beat both replay and the best prior heuristic segmentation run in the short pilot regime
+- teacher agreement stayed around the low `0.8` range, so the student is learning from the heuristic teacher without trivially collapsing
+- the autonomous variant also used fewer segments and longer spans than the teacher-forced variant, indicating that learned segmentation is now outperforming heuristic segmentation as a policy rather than merely matching it
+
+Process update:
+
+- the next step is no longer another heuristic sweep
+- the next step is a matched-seed replication study comparing replay versus autonomous learned-head
+- `train.py` now exposes a configurable `seed`, and [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) provides a reproducible benchmark wrapper for replay, heuristic, teacher-forced, and autonomous variants

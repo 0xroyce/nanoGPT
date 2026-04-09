@@ -114,6 +114,32 @@ Learned boundary-head research protocol:
 3. run a learned-head autonomous-write variant with the same teacher loss weight
 4. compare validation loss, event count, mean span, teacher fraction, predicted fraction, teacher agreement, and iteration time
 
+Learned boundary-head pilot outcome:
+
+- a fresh heuristic control on the learned-head codepath reached about `2.3336` validation loss at `2000` steps
+- the learned head with teacher-forced writes reached about `2.1384` at `2000` steps
+- the learned head with autonomous writes reached about `2.1006` at `2000` steps
+- the autonomous learned head therefore beat both the replay reference (`2.1702`) and the best historical heuristic Prototype B run (`2.1825`)
+- the autonomous learned head also used fewer segments and longer spans than the teacher-forced version, which suggests the learned policy is not merely copying the heuristic teacher
+
+Replication protocol from here:
+
+1. stop using heuristic controls as the main frontier benchmark
+2. compare replay versus autonomous learned-head across at least three matched seeds
+3. use explicit CLI seeds now that `train.py` supports a configurable `seed`
+4. only promote the learned-head branch as a true new winner if its mean remains better than replay across those matched seeds
+5. if that mean win holds, run replay and autonomous learned-head at `5000` steps across the same seed set
+
+Suggested first replication seed set:
+
+- `1337`
+- `1437`
+- `1537`
+
+Recommended runner:
+
+- use [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) to standardize the benchmark commands and log names
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

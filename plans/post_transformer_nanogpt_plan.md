@@ -1215,9 +1215,25 @@ Observed heuristic results so far:
 Updated execution guidance:
 
 1. stop spending budget on additional tiny heuristic threshold sweeps
-2. document `2.1825` as the best heuristic Prototype B benchmark
-3. move to a learned boundary head trained against the heuristic teacher
-4. evaluate that learned head with a more formal control stack rather than one-off config nudges
+2. keep `2.1825` as the best historical heuristic Prototype B benchmark
+3. note that a fresh heuristic control on the learned-head codepath reached only about `2.3336` at `2000` steps, so heuristic replication is no longer the frontier question
+4. move to a learned boundary head trained against the heuristic teacher
+5. evaluate that learned head with a formal control stack rather than one-off config nudges
+
+Observed learned boundary-head pilot results:
+
+- learned head with teacher-forced writes reached about `2.1384` validation loss at `2000` steps
+- learned head with autonomous predicted writes reached about `2.1006` validation loss at `2000` steps
+- the autonomous learned head therefore beat the replay reference at about `2.1702`
+- the autonomous learned head also beat the best historical heuristic Prototype B run at about `2.1825`
+- teacher agreement stayed healthy at roughly `0.81` for both learned variants, so the learned head is tracking the heuristic teacher without collapsing into trivial behavior
+- the autonomous learned head used fewer segments than the teacher-forced variant and achieved longer event spans, suggesting that it learned a sparser and better segmentation policy than the heuristic teacher itself
+
+Research interpretation:
+
+- this is the first serious sign that Prototype B is no longer just behaviorally interesting but competitively useful
+- the correct next question is not whether more heuristic tuning helps, but whether the autonomous learned-head win replicates across seeds and persists at longer horizons
+- proper testing now means seed-matched replication against replay, followed by `5000`-step confirmation if the mean advantage holds
 
 Why this is breakthrough-level:
 
