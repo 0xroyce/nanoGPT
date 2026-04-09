@@ -530,16 +530,48 @@ class RetrievalMemory(nn.Module):
                     novelty_mean = novelty.mean()
                     novelty_std = novelty.std(unbiased=False)
                     boundary_threshold = novelty_mean + boundary_strength * novelty_std
-                    selected_mask = novelty >= boundary_threshold
-                    boundary_positions = torch.nonzero(selected_mask, as_tuple=False).squeeze(-1) + 1
-                    if boundary_positions.numel() == 0:
-                        top_idx = torch.argmax(novelty).view(1)
-                        boundary_positions = top_idx + 1
-                    elif boundary_positions.numel() > boundary_count:
-                        selected_scores = novelty.index_select(0, boundary_positions - 1)
-                        keep = torch.topk(selected_scores, k=boundary_count, dim=0).indices
-                        boundary_positions = boundary_positions.index_select(0, keep)
-                    boundary_positions = torch.sort(boundary_positions.unique(sorted=True)).values
+                    # Prefer salient local peaks and enforce a minimum spacing between
+                    # them so the heuristic can form fewer, longer events when novelty
+                    # is diffuse rather than always tiling the sequence into near-uniform
+                    # chunks.
+                    left_scores = torch.cat((novelty[:1], novelty[:-1]))
+                    right_scores = torch.cat((novelty[1:], novelty[-1:]))
+                    peak_mask = (novelty >= boundary_threshold) & (novelty >= left_scores) & (novelty >= right_scores)
+                    peak_indices = torch.nonzero(peak_mask, as_tuple=False).squeeze(-1)
+                    if peak_indices.numel() == 0:
+                        boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
+                    else:
+                        peak_scores = novelty.index_select(0, peak_indices)
+                        base_span = max(4, int(math.ceil(token_count / max(max_segments, 1))))
+                        min_segment_tokens = min(
+                            max(
+                                base_span,
+                                int(round(base_span * (1.0 + 0.35 * boundary_strength))),
+                            ),
+                            max(token_count - 1, 1),
+                        )
+                        target_boundary_budget = min(
+                            boundary_count,
+                            max(1, int(math.floor((token_count - 1) / float(min_segment_tokens)))),
+                        )
+
+                        sorted_peak_order = torch.argsort(peak_scores, descending=True)
+                        kept_positions = []
+                        for order_idx in sorted_peak_order.tolist():
+                            candidate_pos = int(peak_indices[order_idx].item()) + 1
+                            if all(abs(candidate_pos - prior_pos) >= min_segment_tokens for prior_pos in kept_positions):
+                                kept_positions.append(candidate_pos)
+                            if len(kept_positions) >= target_boundary_budget:
+                                break
+
+                        if kept_positions:
+                            boundary_positions = torch.tensor(
+                                sorted(kept_positions),
+                                device=x.device,
+                                dtype=torch.long,
+                            )
+                        else:
+                            boundary_positions = torch.zeros(0, device=x.device, dtype=torch.long)
                 boundaries = torch.cat((
                     torch.tensor([0], device=x.device, dtype=torch.long),
                     boundary_positions,
