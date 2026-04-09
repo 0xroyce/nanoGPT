@@ -1606,3 +1606,12 @@ Branch update:
 - replay remains the stronger validated substrate
 - the current learned-boundary-head branch should be retired as a routine benchmark candidate
 - if event segmentation is revisited, it should come back only as part of a more structural chunked episodic-memory design rather than another sweep of the same write-policy recipe
+
+## Chunked Episodic Memory Prototype
+
+Implemented:
+
+- a new `use_chunked_episodic_memory` path on top of event-segmented episodic memory
+- learned chunk summaries built from segment mean, max, start, end, and normalized span length
+- episodic span metadata stored alongside the summary bank and injected back into retrieval through a learned span embedding
+- benchmark runner support for `chunked_heuristic` and `chunked_autonomous` pilot variants

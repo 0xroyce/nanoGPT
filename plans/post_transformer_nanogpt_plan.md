@@ -1307,6 +1307,13 @@ Updated recommendation:
 4. the right follow-on is chunked episodic memory with event summaries as first-class memory entries
 5. if event segmentation comes back, it should return as part of that chunked-memory design, not as another sweep of the current learned-head recipe
 
+Implemented next prototype:
+
+- `use_chunked_episodic_memory` now turns event summaries into a learned chunk memory representation instead of a plain segment mean
+- chunk summaries are encoded from segment mean, max, start state, end state, and normalized span length
+- episodic retrieval now also receives span metadata through a learned span embedding, so chunk length is part of the memory key/value content
+- the benchmark runner now supports `chunked_heuristic` and `chunked_autonomous` variants as the first direct tests of chunked episodic memory on top of the locked replay-capable backbone
+
 Why this is breakthrough-level:
 
 - if the right unit of memory is the event rather than the token span, this could reduce both compute and memory traffic in a more fundamental way than attention sparsity

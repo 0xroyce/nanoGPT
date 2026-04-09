@@ -207,6 +207,15 @@ Updated recommendation:
 3. if event segmentation is revisited, do it only as part of a chunked episodic-memory design with event summaries as first-class stored units
 4. do not spend more routine benchmark budget on this exact learned-head recipe
 
+Chunked-memory implementation note:
+
+- `use_chunked_episodic_memory=True` now enables a first structural chunked-memory prototype
+- chunk summaries are learned from segment mean, max, start, end, and normalized span length
+- episodic retrieval also receives a learned span embedding so chunk size becomes part of the stored memory representation
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports:
+  - `chunked_heuristic`
+  - `chunked_autonomous`
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed
