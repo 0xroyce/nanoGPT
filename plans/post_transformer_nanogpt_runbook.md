@@ -1,4 +1,4 @@
-# Post-Transformer nanoGPT Runbook
+# Post-Transformer nanoGPT Runbook v2
 
 Author:
 
@@ -14,10 +14,40 @@ This file explains:
 - how to run baseline and local-attention experiments
 - what source data is required
 - how to prepare that data inside this repo
+- what the current locked winner is
+- what the next neuroscience-inspired phase should test
 
 Canonical project path:
 
 - [nanoGPT](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT)
+
+
+## Current Locked Winner
+
+The current canonical branch winner is:
+
+- dense attention
+- dense FFN
+- retrieval-first memory
+- episodic memory enabled
+- `retrieval_lr_scale=15.0`
+- `episodic_memory_weight=0.0625`
+- `episodic_memory_slots=64`
+- `episodic_memory_topk=2`
+- `stream_eval_warmup_iters=64`
+
+Validated `5000`-step OpenWebText runs:
+
+- `1.2200`
+- `1.2218`
+- `1.2233`
+- `1.2116`
+
+Current summary:
+
+- 4-run average is about `1.2192`
+- `1.2116` is the strongest single `5000`-step result on the branch so far
+- this configuration should remain frozen as the reference baseline for all next-phase experiments
 
 
 ## What Changed in the Code
@@ -29,10 +59,39 @@ The current `nanoGPT` fork includes:
 - local causal attention via `attention_mode='local'`
 - sparse FFN / MoE via `ffn_mode='moe'`
 - retrieval-first memory via `use_retrieval_memory=True`
+- episodic memory via `use_episodic_memory=True`
 - optional persistent-memory banking via `use_persistent_memory=True`
 - optional memory-controller routing via `use_memory_controller=True`
 - optional multi-timescale optimizer groups via `use_multiscale_optim=True`
+- optional memory local-learning probes
+- optional memory utility-learning probes
+- optional replay-based memory consolidation probes
 - optional experiment metric logging in [train.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/train.py)
+
+
+## Next Phase Direction
+
+The next phase should be guided by the current strongest neuroscience-inspired conclusion:
+
+- memory hierarchy looks more promising than naive sparsity
+
+That means the immediate next experiments should prioritize:
+
+1. selective episodic writes driven by surprise, novelty, or utility
+2. replay and consolidation across timescales
+3. compact working memory / recurrent state
+4. richer memory-centered objectives only after the memory substrate improves
+
+Highest-upside breakthrough prototypes now specified in the main plan:
+
+1. replay-based complementary learning systems
+2. event segmentation and chunked episodic memory
+
+Those prototype specs live in [post_transformer_nanogpt_plan.md](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/plans/post_transformer_nanogpt_plan.md) and should be treated as the next implementation candidates after the locked winner.
+
+Important anti-goal:
+
+- do not restart broad sparse-routing or local-learning coefficient sweeps before the memory hierarchy is stronger
 
 
 ## Environment Setup

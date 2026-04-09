@@ -1,4 +1,4 @@
-# Post-Transformer nanoGPT Changelog
+# Post-Transformer nanoGPT Changelog v2
 
 Author:
 
@@ -43,6 +43,13 @@ Status:
 - gated two-stage external-memory prototype started
 - gated two-stage external-memory prototype benchmarked as a partial recovery
 - external-memory timescale split started
+- dense episodic `x15` winner frozen as the canonical baseline
+- fourth full `x15` replicate validated at about `1.2116`
+- local-learning sweeps paused after two failed formulations
+- next phase replanned around a neuroscience-inspired memory hierarchy
+- explicit high-risk neuroscience breakthrough track added to the plan
+- top two breakthrough bets translated into concrete prototype specs
+- replay-based complementary-learning prototype started
 
 
 ## Plan Updates
@@ -56,6 +63,18 @@ Updated [post_transformer_nanogpt_plan.md](/Users/0xroyce/WebstormProjects/Phoen
 - a research backlog for higher-risk ideas
 - concrete Phase 0 and Phase 1 checklists
 - Phase 3 now marked as started with a runnable retrieval-first prototype
+
+Updated the v2 plan again after the branch winner stabilized to reflect:
+
+- the locked dense episodic retrieval winner at `retrieval_lr_scale=15.0`
+- the 4-run `x15` average of about `1.2192`
+- the strongest single `5000`-step run at about `1.2116`
+- a new next phase centered on selective episodic writes, replay/consolidation, and working memory
+- a shift away from more naive sparse-routing and local-learning sweeps
+- a separate breakthrough track for higher-risk ideas including complementary learning systems, event segmentation, neuromodulated plasticity, working-memory loops, active-dendrite-style compute, and predictive-coding-style error routing
+- concrete prototype specs for the top two breakthrough bets:
+  - replay-based complementary learning systems
+  - event segmentation and chunked episodic memory
 
 
 ## Code Changes

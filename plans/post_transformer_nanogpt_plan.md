@@ -20,18 +20,46 @@ The immediate goal is to identify which changes are real contributors before por
 Current strongest beliefs:
 
 1. retrieval should be treated as primary memory, not just a helper feature
-2. sparse expert routing is likely useful across multiple subsystems, not only the FFN
-3. hierarchical predictive objectives are more promising than token-only supervision
-4. local learning signals may matter, even if early prototypes still use backprop
-5. multi-timescale consolidation is a core systems idea, not a polish feature
+2. selective memory writes and consolidation now look more promising than naive sparsity sweeps
+3. multi-timescale consolidation is a core systems idea, not a polish feature
+4. local learning remains an open research axis, but two current formulations failed on the locked winner
+5. richer predictive objectives still matter, but they should grow out of the retrieval path instead of competing with it
 
 How this affects the plan:
 
-- retrieval, routing, and multi-objective training remain top-tier directions
-- local learning signals are tracked as a research axis, but not required in the first runnable `nanoGPT` milestones
-- multi-timescale learning should stay in the roadmap even if the first implementation is optimizer-level only
-- naive persistent banks and simple token-level gating are not the current path to the memory/computation split we actually want
-- the current best validated branch is retrieval-first memory plus corrected multi-timescale optimization with `retrieval_lr_scale=8.0`
+- retrieval-first memory remains the top-tier direction
+- multi-timescale learning stays in the roadmap, but now needs a memory-hierarchy expression rather than optimizer-only tuning
+- sparse routing is still a long-term goal, but it is no longer the immediate next experiment family
+- local learning signals are paused until a stronger memory hierarchy exists underneath them
+- the current best validated branch is the dense episodic retrieval winner with `retrieval_lr_scale=15.0`, `episodic_memory_weight=0.0625`, `episodic_memory_slots=64`, `episodic_memory_topk=2`, and `stream_eval_warmup_iters=64`
+
+
+## Current Locked Winner
+
+The branch now has a locked reference configuration:
+
+- dense attention
+- dense FFN
+- retrieval-first memory
+- episodic memory enabled
+- `retrieval_lr_scale=15.0`
+- `episodic_memory_weight=0.0625`
+- `episodic_memory_slots=64`
+- `episodic_memory_topk=2`
+- `stream_eval_warmup_iters=64`
+
+Validated `5000`-step runs on OpenWebText:
+
+- `1.2200`
+- `1.2218`
+- `1.2233`
+- `1.2116`
+
+Current summary:
+
+- 4-run average is about `1.2192`
+- `1.2116` is the strongest single `5000`-step result on the branch so far
+- this winner should remain frozen while new neuroscience-inspired memory experiments are tested against it
 
 
 ## North Star
@@ -99,17 +127,17 @@ Practical interpretation for the current harness:
 The current architectural priority order is:
 
 1. retrieval-first memory
-2. sparse expert routing
-3. hierarchical predictive training objectives
-4. multi-timescale consolidation
-5. recurrent latent state
-6. local learning signals
+2. selective episodic writes and memory utility
+3. multi-timescale consolidation
+4. recurrent latent state / working memory
+5. hierarchical predictive training objectives
+6. sparse expert routing
 
 Important execution note:
 
 - this is a priority ranking for long-term impact, not the coding order
 - the coding order will still begin with the easiest high-signal experiments that keep the harness debuggable
-- the current safest path is the winning retrieval-only branch plus systems-level improvements around it
+- the current safest path is the winning dense episodic retrieval branch plus neuroscience-inspired memory-hierarchy improvements around it
 
 
 ## Design Principles
@@ -848,6 +876,343 @@ Current status:
 
 These ideas are worth preserving in the roadmap, but they should be treated as second-wave or high-risk investigations unless an early result points strongly toward them.
 
+## Breakthrough Track - High-Risk Neuroscience Bets
+
+The current Phase 7 plan is intentionally disciplined and close to the validated retrieval winner.
+
+That is good science, but it is not yet the full “breakthrough” track.
+
+If the project is serious about the 10%-cost goal, it should preserve a separate set of high-risk neuroscience-inspired bets that could produce a larger jump if they work.
+
+These ideas are not the immediate next coding steps.
+They are the explicit non-average hypotheses that could justify the project if one of them lands.
+
+### 1. Complementary Learning Systems in the Training Loop
+
+Brain inspiration:
+
+- hippocampus as fast learner
+- cortex as slow consolidator
+
+Breakthrough hypothesis:
+
+- a language model may become far more sample-efficient if training is explicitly split into:
+  - fast episodic writes
+  - slower replay-based consolidation into weights
+
+What would be genuinely new in this repo:
+
+- stop treating replay as a regularizer
+- treat replay as a first-class consolidation stage
+- let the model learn from a small set of high-utility traces multiple times instead of relearning the same patterns from the raw stream
+
+Why this could matter for the 10% goal:
+
+- if useful patterns can be consolidated from replayed traces instead of repeatedly rediscovered from dense streaming data, total tokens-to-target-loss could drop materially
+
+### 2. Predictive-Coding Style Error Routing
+
+Brain inspiration:
+
+- cortex may operate partly through local prediction and error correction instead of only one global supervised signal
+
+Breakthrough hypothesis:
+
+- the model should not just predict tokens
+- internal modules should predict the next latent state, retrieved memory, or event boundary, and only surprising errors should drive expensive updates
+
+What would be genuinely new in this repo:
+
+- maintain explicit “prediction vs error” channels for selected modules
+- route compute and plasticity based on local error, not only on token loss
+
+Why this could matter for the 10% goal:
+
+- easy, well-predicted regions may require much less active compute and much less write pressure
+- expensive learning can be concentrated on true error-carrying events
+
+Important caution:
+
+- the two local-learning prototypes already failed
+- this idea should only be revisited in a much more structural way, not as another coefficient sweep
+
+### 3. Event Segmentation and Memory Chunking
+
+Brain inspiration:
+
+- brains do not appear to store every token-like observation independently
+- they appear to segment experience into events and chunks
+
+Breakthrough hypothesis:
+
+- explicit event segmentation could be more important than token-level sparsity
+- a model that writes and retrieves chunked episodes may need far less memory bandwidth and fewer expensive updates
+
+What would be genuinely new in this repo:
+
+- learn boundaries for “episodes” or “events”
+- write compressed event summaries into episodic memory instead of uniform token-derived slots
+- retrieve event summaries first, then refine only when needed
+
+Why this could matter for the 10% goal:
+
+- chunk-level memory could reduce both compute and memory traffic
+- it may also give the model a cleaner unit for replay and consolidation
+
+### 4. Active Dendrite / Context Branch Computation
+
+Brain inspiration:
+
+- biological neurons are not simple point neurons
+- context can modulate which dendritic branches participate in a computation
+
+Breakthrough hypothesis:
+
+- instead of routing whole experts, let context select low-cost sub-branches inside blocks
+- the right granularity of selective compute may be smaller and more conditional than current MoE layers
+
+What would be genuinely new in this repo:
+
+- context-dependent sub-block activation
+- memory-conditioned branch selection inside attention or FFN pathways
+- branch utility logging rather than coarse expert load logging
+
+Why this could matter for the 10% goal:
+
+- this could deliver selective compute without the heavy dispatch overhead that killed earlier sparse-routing attempts
+
+### 5. Neuromodulated Plasticity
+
+Brain inspiration:
+
+- dopamine, acetylcholine, norepinephrine, and other modulators appear to change when learning should happen, not just what is represented
+
+Breakthrough hypothesis:
+
+- write strength, learning rate, or consolidation intensity should depend on a small number of global modulatory signals such as:
+  - surprise
+  - uncertainty
+  - novelty
+  - utility
+
+What would be genuinely new in this repo:
+
+- explicit global plasticity signals that modulate memory writes and module updates
+- different modules becoming more or less plastic depending on the state of the sequence
+
+Why this could matter for the 10% goal:
+
+- much of dense training may be wasted because the model is learning equally from everything
+- modulated plasticity could reduce wasted updates directly
+
+### 6. Working Memory Loops Instead of Pure Depth
+
+Brain inspiration:
+
+- cognition often appears to rely on recurrent loops and active working memory, not only on a deeper one-pass feedforward stack
+
+Breakthrough hypothesis:
+
+- some depth could be replaced by iterative state refinement over a compact working memory
+- this may reduce active parameters per token while preserving capability
+
+What would be genuinely new in this repo:
+
+- small recurrent working state
+- iterative refinement steps with retrieval-conditioned updates
+- adaptive halting or variable refinement count
+
+Why this could matter for the 10% goal:
+
+- if several cheap refinement steps beat one much larger dense pass, cost-to-target-loss could improve sharply
+
+## How To Use The Breakthrough Track
+
+This track should not replace the main Phase 7 plan.
+
+Instead:
+
+- Phase 7 remains the disciplined path to the next credible improvement
+- the breakthrough track supplies higher-risk bets that could matter far more if they work
+- every breakthrough idea should be translated into one minimal falsifiable prototype before any broad implementation push
+
+Priority order inside the breakthrough track:
+
+1. complementary learning systems via replay and consolidation
+2. event segmentation and chunked episodic memory
+3. neuromodulated plasticity for memory writes
+4. working-memory loops
+5. active-dendrite style branch computation
+6. predictive-coding style error routing
+
+Why this order:
+
+- it stays closest to the current retrieval winner
+- it remains grounded in the 10%-cost target
+- and it still preserves genuinely non-average ideas that could open a larger jump than another local optimization sweep
+
+## Top Two Breakthrough Prototype Specs
+
+These are the first two high-risk ideas that are now concrete enough to implement in the current harness.
+
+They should be treated as separate prototypes, not combined in the first pass.
+
+### Prototype A - Complementary Learning Systems via Replay Consolidation
+
+Core idea:
+
+- keep the current episodic memory as the fast learner
+- add a slow consolidation path that periodically reuses high-utility episodic traces
+- make replay a first-class training event, not just an incidental side effect
+
+Minimal architecture change:
+
+- extend the episodic module so it can retain a small replay buffer of the most useful written traces from recent sequences
+- define utility initially with a simple detached signal:
+  - mean token loss over the span that produced the trace
+  - or top-k surprise pooled over the span
+- on a configurable schedule, replay a small number of retained traces through a lightweight consolidation objective
+- keep the main LM path unchanged
+
+Minimal new config flags:
+
+- `use_memory_replay_consolidation`
+- `memory_replay_buffer_size`
+- `memory_replay_every`
+- `memory_replay_batch_size`
+- `memory_replay_weight`
+- `memory_replay_utility_mode`
+
+Minimal first objective:
+
+- predict the same next-token targets on replayed trace-conditioned hidden states
+- do not introduce a new exotic loss in the first pass
+- the novelty is the replay schedule and fast/slow split, not the target itself
+
+Required first-run metrics:
+
+- `memory/replay_enabled`
+- `memory/replay_buffer_fill`
+- `memory/replay_batch_size`
+- `memory/replay_trace_reuse`
+- `memory/replay_utility_mean`
+- `memory/replay_loss`
+- `memory/consolidation_loss`
+
+Short-run benchmark plan:
+
+1. freeze the locked winner as the baseline
+2. run a `2000`-step pilot with replay off but instrumentation on
+3. run a matched `2000`-step replay pilot with very small replay weight
+4. compare validation loss, replay utilization, and iteration time
+
+Success criteria:
+
+- validation loss improves or stays near-flat
+- replay traces show non-trivial reuse
+- replay cost overhead is modest enough to keep the 10%-goal story alive
+
+Failure criteria:
+
+- replay just duplicates the online path with no utility concentration
+- replay destabilizes the winner
+- replay overhead is too large relative to the quality gain
+
+Why this is breakthrough-level:
+
+- it would turn memory into a true fast-learning system and weights into a slower-learning system
+- that is a much deeper shift than adding another auxiliary loss
+
+### Prototype B - Event Segmentation and Chunked Episodic Memory
+
+Core idea:
+
+- stop writing memory as if every token window were equally meaningful
+- learn event boundaries and store compressed event summaries instead of uniform token-derived slots
+
+Minimal architecture change:
+
+- add a small event-boundary head that proposes write boundaries over the sequence
+- aggregate tokens between boundaries into compressed event summaries
+- write those event summaries into episodic memory instead of writing uniformly pooled fixed slots
+- retrieve event summaries first, not raw slot fragments
+
+Minimal new config flags:
+
+- `use_event_segmented_memory`
+- `event_boundary_mode`
+- `event_max_segments`
+- `event_summary_dim`
+- `event_write_topk`
+- `event_boundary_weight`
+
+Minimal first boundary signal:
+
+- begin with a heuristic teacher to avoid turning the first pass into a full unsupervised segmentation problem
+- first teacher options:
+  - high-surprise token boundaries
+  - punctuation or separator boundaries on tokenized text
+  - novelty jumps in hidden-state space
+
+Minimal first objective:
+
+- train the boundary head to approximate the heuristic teacher
+- use the resulting segments to build event summaries
+- feed event summaries into episodic retrieval exactly where the current episodic path expects slots
+
+Required first-run metrics:
+
+- `memory/event_segments`
+- `memory/event_boundary_fraction`
+- `memory/event_summary_utilization`
+- `memory/event_mean_span`
+- `memory/event_slot_utilization`
+- `memory/event_teacher_agreement`
+
+Short-run benchmark plan:
+
+1. keep the locked winner as the reference
+2. run a parity pilot where event segmentation is enabled but boundaries are purely heuristic
+3. run a second pilot with a learned boundary head trained against the heuristic teacher
+4. compare quality, memory bandwidth, slot utilization, and retrieval entropy
+
+Success criteria:
+
+- episodic slot utilization becomes more meaningful rather than merely dense
+- retrieval entropy stays healthy
+- equal or better quality is reached with fewer effective memory writes or more reusable summaries
+
+Failure criteria:
+
+- segmentation adds complexity but produces no memory compression advantage
+- summaries are too coarse and hurt quality sharply
+- the learned boundary head collapses to trivial always-write or never-write behavior
+
+Why this is breakthrough-level:
+
+- if the right unit of memory is the event rather than the token span, this could reduce both compute and memory traffic in a more fundamental way than attention sparsity
+
+## Immediate Recommendation From The Top Two
+
+If only one breakthrough prototype is implemented next, it should be:
+
+1. replay-based complementary learning systems
+
+Why:
+
+- it is closer to the current winner
+- it does not require introducing a new segmentation head immediately
+- it directly attacks the single-timescale learning problem
+
+If a second prototype is started after that, it should be:
+
+2. event segmentation and chunked episodic memory
+
+Why:
+
+- it is the strongest non-average bet on changing the unit of memory itself
+- if it works, it could matter more than another generic sparsity attempt
+
 ### Radical sparsity in weight tensors
 
 Hypothesis:
@@ -934,24 +1299,136 @@ Longer-term form:
 This idea should shape how modules are factored even in early code.
 
 
-## Phase 7 - Integration and Ablation
+## Phase 7 - Neuroscience-Inspired Memory Hierarchy
 
-Once individual ideas are tested in isolation:
+The next phase should stop chasing generic “brain-like” modules and instead focus on the specific systems split that the branch results now support:
 
-- combine the best-performing sparse attention variant with the best FFN routing variant
-- evaluate whether retrieval still helps after sparsity is added
-- test whether recurrence helps on top of the strongest sparse baseline
-- only combine multi-loss training after the base architecture is stable
+- fast episodic storage
+- slower consolidation into weights
+- selective writing rather than uniform writing
+- compact working state rather than forcing retrieval to do everything
 
-Every combined run should include an ablation table:
+This phase is directly motivated by the 10%-cost goal.
 
-- baseline
-- plus sparse attention
-- plus sparse FFN
-- plus retrieval
-- plus recurrence
-- plus auxiliary loss
-- best combined model
+Working hypothesis:
+
+- the strongest path forward is not “turn off more compute first”
+- the strongest path forward is “improve how memory is written, retained, replayed, and consolidated”
+- once that memory hierarchy is real, sparse routing and richer objectives should have a better substrate to operate on
+
+### Phase 7A - Selective Episodic Writes
+
+Goal:
+
+- make episodic memory write selectively based on signals that plausibly correspond to salience, surprise, or novelty
+
+Brain inspiration:
+
+- not every experience is stored equally
+- surprising or salient events are more likely to be written into fast memory
+
+First prototype:
+
+- add a write gate on top of the winning episodic branch
+- allow write strength to depend on one or more of:
+  - token loss / surprise
+  - novelty relative to existing slots
+  - retrieval disagreement or margin
+
+Required metrics:
+
+- `memory/write_gate_mean`
+- `memory/write_gate_entropy`
+- `memory/write_fraction`
+- `memory/slot_refresh_fraction`
+- `memory/write_teacher_signal_mean`
+
+Decision gate:
+
+- promote only if quality improves or stays near-flat while memory writes become meaningfully more selective
+
+### Phase 7B - Replay and Consolidation
+
+Goal:
+
+- separate fast memory storage from slower weight consolidation
+
+Brain inspiration:
+
+- hippocampal replay and multi-timescale consolidation
+
+First prototype:
+
+- periodically replay high-utility episodic traces into an auxiliary consolidation path
+- allow the slow weights to absorb recurring useful structure instead of expecting the online path to do it alone
+
+Required metrics:
+
+- replay frequency
+- replay trace reuse
+- delayed utility of replayed traces
+- consolidation loss contribution
+
+Decision gate:
+
+- promote only if replay improves sample efficiency or lowers cost-to-target-loss relative to the locked winner
+
+### Phase 7C - Compact Working Memory
+
+Goal:
+
+- separate active short-horizon state from stored episodic traces
+
+Brain inspiration:
+
+- working memory is not the same as long-term storage
+
+First prototype:
+
+- add a compact recurrent latent state or scratchpad alongside retrieval memory
+- let episodic memory handle recall while the recurrent state carries active local context
+
+Decision gate:
+
+- promote only if the state adds measurable value on top of the retrieval winner without destabilizing training
+
+### Phase 7D - Richer Memory-Centered Objectives
+
+Goal:
+
+- move beyond pure next-token supervision without repeating the failed local-learning formulations from this branch
+
+Allowed first targets:
+
+- memory usefulness prediction
+- delayed retrieval utility
+- chunk-level or latent-state prediction
+
+Important note:
+
+- do not restart generic local-learning sweeps
+- only add new objectives once selective writes or replay produce a better memory substrate
+
+### Immediate Coding Order
+
+1. selective episodic write gate on top of the locked winner
+2. short-run write-policy comparison at `2000` steps
+3. replay / consolidation prototype only if selective writes show promise
+4. compact recurrent state only after replay direction is clearer
+
+### Success Criteria for Phase 7
+
+Short-term success:
+
+- one memory-hierarchy intervention improves validation quality or sample efficiency against the locked winner
+
+Medium-term success:
+
+- fast episodic memory plus slower consolidation shows a cleaner path toward lower total cost than naive sparse routing
+
+Long-term success:
+
+- the branch gets materially closer to the 10%-cost goal by separating fast memory, slow learning, and selective activation in a more brain-like systems design
 
 
 ## Porting Criteria for `modeling_llama.py`

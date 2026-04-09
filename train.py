@@ -84,6 +84,12 @@ memory_local_learning_weight = 0.0
 use_memory_utility_learning = False
 memory_utility_learning_weight = 0.0
 memory_utility_top_fraction = 0.25
+use_memory_replay_consolidation = False
+memory_replay_buffer_size = 128
+memory_replay_every = 32
+memory_replay_batch_size = 4
+memory_replay_weight = 0.0
+memory_replay_utility_mode = 'mean_loss'
 use_multiscale_optim = False
 retrieval_lr_scale = 1.0
 retrieval_lr_scale_warmup_iters = 0
@@ -246,7 +252,7 @@ def format_named_scalars(named_values):
 
 
 def should_return_info():
-    return log_experiment_metrics or use_aux_losses
+    return log_experiment_metrics or use_aux_losses or use_memory_replay_consolidation
 
 
 def get_active_hard_token_fraction(it):
@@ -366,6 +372,12 @@ model_args = dict(
     use_memory_utility_learning=use_memory_utility_learning,
     memory_utility_learning_weight=memory_utility_learning_weight,
     memory_utility_top_fraction=memory_utility_top_fraction,
+    use_memory_replay_consolidation=use_memory_replay_consolidation,
+    memory_replay_buffer_size=memory_replay_buffer_size,
+    memory_replay_every=memory_replay_every,
+    memory_replay_batch_size=memory_replay_batch_size,
+    memory_replay_weight=memory_replay_weight,
+    memory_replay_utility_mode=memory_replay_utility_mode,
     use_multiscale_optim=use_multiscale_optim,
     retrieval_lr_scale=retrieval_lr_scale,
     external_lr_scale=external_lr_scale,
