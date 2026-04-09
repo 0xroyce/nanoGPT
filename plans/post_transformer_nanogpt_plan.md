@@ -1430,6 +1430,26 @@ Updated recommendation:
 2. keep the architecture fixed for that test instead of tweaking coefficients now
 3. only tune `state_dim` or `recurrent_state_weight` after the first `5000`-step mean is known
 
+Observed `5000`-step outcome:
+
+- replay reached `1.2312`, `1.2318`, and `1.2259`, averaging about `1.2296`
+- the compact recurrent-state branch reached `1.2393`, `1.2372`, and `1.2309`, averaging about `1.2358`
+- replay therefore beat the recurrent-state branch by about `0.0062` on the three-seed mean
+- the recurrent-state metrics remained live and stable at `5000` steps, with recurrent gate mean around `0.48`, recurrent state norm around `0.07` to `0.08`, and recurrent valid fraction at `1.0`
+
+Updated conclusion:
+
+- compact working memory is a real short-run sample-efficiency result, not a new final-quality winner
+- the branch improved clearly at `2000` steps but that advantage washed out by `5000`
+- the mechanism itself is functioning, but in the current form it does not beat replay on long-run OpenWebText quality
+
+Updated recommendation:
+
+1. do not call the recurrent-state branch the new lead branch
+2. do keep it as the strongest current sample-efficiency-positive architectural variant after replay
+3. before changing the architecture again, measure whether its early advantage is large enough to matter in cost-to-target-loss terms
+4. if the curves do not show a meaningful time-to-threshold gain, retire this exact recurrent recipe and move on
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
@@ -1443,6 +1463,7 @@ Why:
 - a compact recurrent scratchpad is the clearest remaining high-signal memory-hierarchy idea in the plan that is genuinely distinct from the branches we already falsified
 - the first seed already shows a meaningful short-run gain, so this branch has crossed the threshold from speculative to actively worth replicating
 - the matched-seed result now clears that replication bar, so the next honest test is the longer-horizon `5000` benchmark
+- the `5000` benchmark did not hold the early win, so the next honest question is sample efficiency rather than endpoint quality
 
 Prototype A should remain available underneath that work:
 

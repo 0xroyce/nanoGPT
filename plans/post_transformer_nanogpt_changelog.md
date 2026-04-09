@@ -1728,3 +1728,15 @@ Interpretation:
 
 - compact working memory has now cleared the proper matched-seed replication bar at `2000` steps
 - this is strong enough to justify immediate promotion to a `5000`-step matched-seed comparison without more short-run tuning
+
+Observed `5000`-step comparison:
+
+- replay averaged about `1.2296` across seeds `1337`, `1437`, and `1537`
+- the compact recurrent-state branch averaged about `1.2358` across the same seed set
+- replay therefore held a mean edge of about `0.0062`
+- recurrent-state metrics stayed active and stable throughout the longer runs
+
+Interpretation:
+
+- compact working memory is a real short-run gain but not a new long-run quality winner in its current form
+- the next question for this branch is sample efficiency rather than final loss

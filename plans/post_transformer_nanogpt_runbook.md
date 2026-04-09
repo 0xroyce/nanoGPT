@@ -337,6 +337,20 @@ Updated recommendation:
 2. do not tweak the recurrent hyperparameters yet
 3. treat the next `5000` result as the main decision gate for whether this branch is a true frontier candidate
 
+Observed `5000`-step outcome:
+
+- replay reached `1.2312`, `1.2318`, and `1.2259`, averaging about `1.2296`
+- the compact recurrent-state branch reached `1.2393`, `1.2372`, and `1.2309`, averaging about `1.2358`
+- replay therefore held a three-seed mean edge of about `0.0062`
+- recurrent-state metrics stayed healthy and active through the full run, with gate mean around `0.48`, state norm around `0.07` to `0.08`, and valid fraction at `1.0`
+
+Updated recommendation:
+
+1. do not promote `recurrent_state` as the new final-quality winner
+2. do treat it as a meaningful short-run sample-efficiency branch because the `2000`-step win was large and replicated
+3. compare full eval curves next to determine whether its cost-to-threshold advantage is actually worth carrying forward
+4. if not, retire this exact recurrent-state recipe and move on
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed
