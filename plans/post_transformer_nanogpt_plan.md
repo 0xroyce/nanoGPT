@@ -1546,26 +1546,17 @@ Updated recommendation for this branch:
 3. keep the refinement instrumentation, because it gives us a useful stability and activity readout for any future iterative-memory design
 4. move to a genuinely different architecture or a much tighter loop formulation rather than spending more routine budget on this recipe
 
-## Immediate Recommendation From The Top Two
+Implemented next architecture:
 
-If only one breakthrough prototype is implemented next, it should now be:
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_consolidation` as the first direct Phase 7B prototype on top of the replay winner
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now stores a detached latent summary with replay traces and reports `memory/replay_loss`, `memory/consolidation_loss`, and `memory/consolidation_cosine`
+- the new recipe keeps the validated replay settings, adds a small latent-summary consolidation objective, and replays only stale buffer contents so the consolidation loss is not trivial self-matching
 
-1. compact working memory / recurrent state
+Immediate recommendation for this branch:
 
-Why:
-
-- the replay-plus-chunked family has now been tested in both always-on and delayed forms and failed cleanly
-- the next architecture should separate active short-horizon state from stored episodic traces instead of trying to compose two trace mechanisms
-- a compact recurrent scratchpad is the clearest remaining high-signal memory-hierarchy idea in the plan that is genuinely distinct from the branches we already falsified
-- the first seed already shows a meaningful short-run gain, so this branch has crossed the threshold from speculative to actively worth replicating
-- the matched-seed result now clears that replication bar, so the next honest test is the longer-horizon `5000` benchmark
-- the `5000` benchmark did not hold the early win, so the next honest question is sample efficiency rather than endpoint quality
-
-Prototype A should remain available underneath that work:
-
-- keep replay and consolidation in the harness
-- use the validated `memory_replay_weight=0.01`, `memory_replay_every=32`, `memory_replay_batch_size=4` setting as the current optional substrate
-- only resume dedicated replay sweeps if chunked event-segmented memory clearly benefits from replay or exposes a new failure mode
+1. benchmark `replay_consolidation` against `replay` at `2000` steps first
+2. only promote it if validation loss improves or stays near-flat while `memory/consolidation_loss` and `memory/replay_loss` are both clearly live
+3. judge it with the dual-score protocol from the first pilot, but treat fixed-budget quality as the primary gate because replay is already the `5000` endpoint leader
 
 ### Radical sparsity in weight tensors
 

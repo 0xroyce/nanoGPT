@@ -1768,3 +1768,6 @@ Selective-write follow-up:
 - the loop metrics show real iterative activity rather than a dead mechanism:
   `refinement/step_scale = 0.5`, `refinement/memory_context_norm ~= 8.0`, `refinement/step_delta_norm ~= 10.3`
 - the current `working_memory_loop` recipe should therefore be retired as a benchmark candidate while keeping the refinement instrumentation for future iterative-memory designs
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_consolidation` as the first direct replay-consolidation prototype on top of the replay winner
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now stores detached latent replay summaries and reports `memory/replay_loss`, `memory/consolidation_loss`, and `memory/consolidation_cosine` so replay can be judged as an explicit consolidation path instead of only a regularizer
+- the new replay-consolidation recipe replays only stale buffer contents so the consolidation loss is not just a same-step self-match

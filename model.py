@@ -1574,6 +1574,8 @@ class GPTConfig:
     memory_replay_batch_size: int = 4
     memory_replay_weight: float = 0.0
     memory_replay_utility_mode: str = 'mean_loss'
+    memory_replay_stale_only: bool = False
+    memory_consolidation_weight: float = 0.0
     use_multiscale_optim: bool = False
     retrieval_lr_scale: float = 1.0
     external_lr_scale: float = 1.0
@@ -1658,6 +1660,7 @@ class GPT(nn.Module):
         self.current_surprise_weight_strength = 1.0
         self.replay_buffer_inputs = None
         self.replay_buffer_targets = None
+        self.replay_buffer_summary = None
         self.replay_buffer_utility = None
         self.replay_buffer_use_count = None
         self.replay_buffer_valid = None
@@ -1705,6 +1708,12 @@ class GPT(nn.Module):
             dtype=torch.long,
             device=device,
         )
+        self.replay_buffer_summary = torch.zeros(
+            buffer_size,
+            self.config.n_embd,
+            dtype=torch.float32,
+            device=device,
+        )
         self.replay_buffer_utility = torch.full(
             (buffer_size,),
             float('-inf'),
@@ -1723,8 +1732,13 @@ class GPT(nn.Module):
         )
         self.replay_buffer_ptr = 0
 
+    def _masked_sequence_summary(self, hidden_states, valid_mask):
+        valid_weights = valid_mask.float()
+        valid_counts = valid_weights.sum(dim=1, keepdim=True).clamp_min(1.0)
+        return (hidden_states * valid_weights.unsqueeze(-1)).sum(dim=1) / valid_counts
+
     @torch.no_grad()
-    def _update_replay_buffer(self, idx, targets, token_losses, valid_mask):
+    def _update_replay_buffer(self, idx, targets, token_losses, valid_mask, hidden_states):
         if not self.config.use_memory_replay_consolidation or not self.training:
             return
         if self.config.memory_replay_buffer_size <= 0:
@@ -1736,6 +1750,7 @@ class GPT(nn.Module):
         self._ensure_replay_buffer(idx.device)
         masked_losses = token_losses.detach() * valid_mask.float()
         valid_counts = valid_mask.sum(dim=1).clamp_min(1)
+        sequence_summary = self._masked_sequence_summary(hidden_states.detach(), valid_mask)
         if self.config.memory_replay_utility_mode == 'max_loss':
             sequence_utility = masked_losses.max(dim=1).values
         else:
@@ -1751,6 +1766,7 @@ class GPT(nn.Module):
             write_pos = self.replay_buffer_ptr
             self.replay_buffer_inputs[write_pos].copy_(idx[selected_idx].detach())
             self.replay_buffer_targets[write_pos].copy_(targets[selected_idx].detach())
+            self.replay_buffer_summary[write_pos].copy_(sequence_summary[selected_idx].detach().float())
             self.replay_buffer_utility[write_pos] = sequence_utility[selected_idx].detach().float()
             self.replay_buffer_use_count[write_pos] = 0
             self.replay_buffer_valid[write_pos] = True
@@ -1771,6 +1787,7 @@ class GPT(nn.Module):
         return {
             'idx': self.replay_buffer_inputs.index_select(0, replay_indices),
             'targets': self.replay_buffer_targets.index_select(0, replay_indices),
+            'summary': self.replay_buffer_summary.index_select(0, replay_indices),
             'utility': self.replay_buffer_utility.index_select(0, replay_indices),
             'reuse': self.replay_buffer_use_count.index_select(0, replay_indices).float(),
             'buffer_fill': self.replay_buffer_valid.float().mean(),
@@ -1899,6 +1916,7 @@ class GPT(nn.Module):
         full_lm_loss = None
         objective_lm_loss = None
         replay_loss = None
+        consolidation_loss = None
         replay_metrics = {}
         if targets is not None:
             # if we are given some desired targets also calculate the loss
@@ -1996,7 +2014,11 @@ class GPT(nn.Module):
                         'memory/utility_prediction_mean': torch.tensor(0.0, device=x.device),
                     }
 
-            self._update_replay_buffer(idx, targets, token_losses, valid_mask)
+            if (
+                not self.config.use_memory_replay_consolidation
+                or not self.config.memory_replay_stale_only
+            ):
+                self._update_replay_buffer(idx, targets, token_losses, valid_mask, x)
             if self.config.use_memory_replay_consolidation:
                 self._ensure_replay_buffer(x.device)
                 replay_metrics = {
@@ -2005,11 +2027,17 @@ class GPT(nn.Module):
                     'memory/replay_batch_size': torch.tensor(0.0, device=x.device),
                     'memory/replay_trace_reuse': torch.tensor(0.0, device=x.device),
                     'memory/replay_utility_mean': torch.tensor(0.0, device=x.device),
+                    'memory/replay_loss': torch.tensor(0.0, device=x.device),
+                    'memory/consolidation_loss': torch.tensor(0.0, device=x.device),
+                    'memory/consolidation_cosine': torch.tensor(0.0, device=x.device),
                 }
                 should_replay = (
                     self.training
                     and self.current_replay_active
-                    and self.config.memory_replay_weight > 0.0
+                    and (
+                        self.config.memory_replay_weight > 0.0
+                        or self.config.memory_consolidation_weight > 0.0
+                    )
                 )
                 if should_replay:
                     replay_batch = self._sample_replay_batch()
@@ -2033,14 +2061,29 @@ class GPT(nn.Module):
                             if valid_replay_losses.numel() > 0
                             else token_losses.new_zeros(())
                         )
+                        replay_summary = self._masked_sequence_summary(replay_x, replay_valid)
+                        consolidation_loss = F.mse_loss(
+                            replay_summary,
+                            replay_batch['summary'].to(dtype=replay_summary.dtype),
+                        )
+                        consolidation_cosine = F.cosine_similarity(
+                            replay_summary,
+                            replay_batch['summary'].to(dtype=replay_summary.dtype),
+                            dim=-1,
+                        ).mean()
                         replay_metrics = {
                             'memory/replay_enabled': torch.tensor(1.0, device=x.device),
                             'memory/replay_buffer_fill': replay_batch['buffer_fill'].detach(),
                             'memory/replay_batch_size': torch.tensor(float(replay_batch['batch_size']), device=x.device),
                             'memory/replay_trace_reuse': replay_batch['reuse'].mean().detach(),
                             'memory/replay_utility_mean': replay_batch['utility'].mean().detach(),
+                            'memory/replay_loss': replay_loss.detach(),
+                            'memory/consolidation_loss': consolidation_loss.detach(),
+                            'memory/consolidation_cosine': consolidation_cosine.detach(),
                         }
                 memory_objective_metrics.update(replay_metrics)
+            if self.config.use_memory_replay_consolidation and self.config.memory_replay_stale_only:
+                self._update_replay_buffer(idx, targets, token_losses, valid_mask, x)
             loss = objective_lm_loss
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
@@ -2077,6 +2120,14 @@ class GPT(nn.Module):
                 )
                 if aux_weight != 0.0:
                     aux_loss_total = aux_loss_total + replay_loss * aux_weight
+            if consolidation_loss is not None:
+                loss_dict['memory_consolidation_loss'] = consolidation_loss
+                consolidation_weight = self.aux_loss_weights.get(
+                    'memory_consolidation_loss',
+                    self.config.memory_consolidation_weight,
+                )
+                if consolidation_weight != 0.0:
+                    aux_loss_total = aux_loss_total + consolidation_loss * consolidation_weight
             if aux_loss_total.abs().item() > 0.0:
                 loss = loss + aux_loss_total
             if self.config.use_aux_losses or replay_loss is not None:
@@ -2096,6 +2147,9 @@ class GPT(nn.Module):
             metrics['memory/replay_batch_size'] = torch.tensor(0.0, device=x.device)
             metrics['memory/replay_trace_reuse'] = torch.tensor(0.0, device=x.device)
             metrics['memory/replay_utility_mean'] = torch.tensor(0.0, device=x.device)
+            metrics['memory/replay_loss'] = torch.tensor(0.0, device=x.device)
+            metrics['memory/consolidation_loss'] = torch.tensor(0.0, device=x.device)
+            metrics['memory/consolidation_cosine'] = torch.tensor(0.0, device=x.device)
         metrics['model/attention_mode_is_dense'] = torch.tensor(
             1.0 if self.config.attention_mode == 'dense' else 0.0,
             device=x.device,
