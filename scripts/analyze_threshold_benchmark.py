@@ -90,6 +90,49 @@ def print_group_summary(
         )
 
 
+def winner_labels(pairs: list[tuple[str, float]], *, lower_is_better: bool = True) -> list[str]:
+    if not pairs:
+        return []
+    key_fn = min if lower_is_better else max
+    best_value = key_fn(value for _, value in pairs)
+    return [label for label, value in pairs if math.isclose(value, best_value, abs_tol=1e-9)]
+
+
+def print_dual_score_summary(
+    labels: list[str],
+    mean_curves: dict[str, dict[int, float]],
+    thresholds: list[float],
+) -> None:
+    final_step = min(max(curve) for curve in mean_curves.values())
+    endpoint_pairs = [(label, mean_curves[label][final_step]) for label in labels]
+    endpoint_winners = winner_labels(endpoint_pairs)
+
+    print("Dual-Score Summary:")
+    print(
+        f"  endpoint @ step {final_step}: "
+        f"{', '.join(endpoint_winners)}"
+        f" ({min(value for _, value in endpoint_pairs):.4f})"
+    )
+
+    for threshold in thresholds:
+        threshold_pairs = []
+        for label in labels:
+            step = first_crossing(mean_curves[label], threshold)
+            if step is not None:
+                threshold_pairs.append((label, float(step)))
+        if not threshold_pairs:
+            print(f"  threshold <= {threshold:.4f}: no group reached it")
+            continue
+        threshold_winners = winner_labels(threshold_pairs)
+        best_step = int(min(value for _, value in threshold_pairs))
+        print(
+            f"  threshold <= {threshold:.4f}: "
+            f"{', '.join(threshold_winners)} first at step {best_step}"
+        )
+
+    print()
+
+
 def compare_groups(
     labels: list[str],
     mean_curves: dict[str, dict[int, float]],
@@ -177,8 +220,8 @@ def main() -> int:
 
     thresholds = sorted(set(args.threshold), reverse=True)
 
-    print("Threshold Benchmark")
-    print("===================")
+    print("Dual-Score Benchmark")
+    print("====================")
     print(f"Thresholds: {', '.join(f'{threshold:.4f}' for threshold in thresholds)}")
     print()
 
@@ -186,6 +229,7 @@ def main() -> int:
         print_group_summary(label, grouped_curves[label], mean_curves[label], thresholds)
         print()
 
+    print_dual_score_summary(labels, mean_curves, thresholds)
     compare_groups(labels, mean_curves, thresholds)
     return 0
 

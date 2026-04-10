@@ -1466,6 +1466,7 @@ Interpretation:
 Standardized follow-up:
 
 - use [analyze_threshold_benchmark.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/analyze_threshold_benchmark.py) to score future sample-efficiency claims against explicit matched-seed validation-loss thresholds
+- treat future architecture evaluations as dual-score benchmarks: endpoint loss at the fixed budget plus time-to-threshold at operationally meaningful cutoffs
 - keep threshold claims tied to operationally meaningful cutoffs instead of ad hoc visual reads from the curves
 - only treat a threshold-based win as promotion-worthy when the endpoint loss tradeoff is acceptable for the intended budget regime
 

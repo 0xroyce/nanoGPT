@@ -374,6 +374,13 @@ python scripts/analyze_threshold_benchmark.py \
   --threshold 1.65
 ```
 
+Dual-score benchmark protocol:
+
+1. report the endpoint winner at the fixed benchmark budget
+2. report the earliest matched-seed mean crossing step for each operational threshold
+3. treat endpoint and threshold wins as separate results, not a single blended score
+4. only call a branch a new overall leader if it wins in the regime that actually matters for the intended deployment budget
+
 What to treat as a real threshold win:
 
 1. require a matched-seed mean crossing advantage, not just a single lucky run
