@@ -1491,6 +1491,20 @@ Updated recommendation for this branch:
 3. run one softer rescue pilot with `episodic_write_fraction=0.75` before retiring the selective-write path
 4. if the `0.75` pilot still loses clearly, retire this exact selective-write recipe quickly instead of sweeping more caps
 
+Observed rescue outcome:
+
+- at `2000` steps on seed `1337`, the softer `episodic_write_fraction=0.75` replay-write-gated run reached about `2.2185`
+- that beats replay's `2.2464` by about `0.0279` while still reducing writes materially
+- the selective-write mechanism remained cleanly active with `memory/write_fraction=0.75`, `memory/write_gate_enabled=1.0`, and `memory/episodic_valid_fraction=0.75`
+- `memory/slot_refresh_fraction=0.0` is still expected here because even the softer cap has not yet forced overwrites by `2000`
+
+Updated recommendation for this branch:
+
+1. retire the `0.5` write-cap recipe as too aggressive
+2. treat the `0.75` write-cap result as the first selective-write recipe worth replicating
+3. move immediately to matched-seed `2000`-step replication against replay
+4. only promote it to a longer run if the three-seed mean remains competitive while preserving the write reduction
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:

@@ -1759,3 +1759,4 @@ Selective-write follow-up:
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now logs explicit episodic write-selectivity metrics so this branch can be judged on both loss and write efficiency from the first pilot
 - the first `episodic_write_fraction=0.5` pilot was a clean negative on loss while still proving that the selective-write mechanism is live
 - the benchmark runner now also supports `replay_write_gated_soft` as the one softer `episodic_write_fraction=0.75` rescue test before this recipe is retired or replicated
+- the `0.75` rescue pilot recovered past replay on seed `1337` while still keeping write activity materially below baseline, so this is now the first selective-write recipe worth matched-seed replication

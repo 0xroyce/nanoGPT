@@ -420,6 +420,31 @@ Decision rule:
 1. if `0.75` stays clearly behind replay, retire this selective-write recipe quickly
 2. if it stays near replay while still cutting writes materially, then it becomes worth matched-seed replication
 
+Observed rescue outcome:
+
+- `replay_write_gated_soft` reached `2.2185` at `2000` on seed `1337`
+- that beats replay's `2.2464` by about `0.0279` while keeping `memory/write_fraction=0.75`
+- `memory/episodic_valid_fraction=0.75` confirms the buffer is materially sparser than replay even though the retrieval path stays active
+
+Recommended next step:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh replay_write_gated_soft 1437 2000
+./scripts/run_learned_boundary_head_benchmark.sh replay_write_gated_soft 1537 2000
+```
+
+Then compare:
+
+```bash
+grep "step 2000" \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1337_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1437_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1537_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_writegate_novelty_f0p75_w0p01_every32_bs4_seed1337_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_writegate_novelty_f0p75_w0p01_every32_bs4_seed1437_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_writegate_novelty_f0p75_w0p01_every32_bs4_seed1537_2000.log
+```
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed
