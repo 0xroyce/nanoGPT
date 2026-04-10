@@ -482,9 +482,12 @@ grep "step 2000" \
 
 Operational gate:
 
-1. only promote this branch if quality improves or stays near-flat versus `replay`
-2. require non-trivial `memory/replay_loss` and `memory/consolidation_loss` to confirm the branch is actually active
-3. do not spend matched-seed budget on this prototype if the consolidation metrics are dead or the loss regresses clearly
+1. the first seed `2000`-step pilot cleared the first quality gate:
+   replay `2.2464` vs `replay_consolidation` `2.2270`
+2. a short dense-log debug run verified that the branch is really active on replay iterations:
+   `iter 31`: `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.9321`, `memory/consolidation_loss = 0.0726`, `memory/consolidation_cosine = 0.9636`
+   `iter 63`: `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.4907`, `memory/consolidation_loss = 0.0195`, `memory/consolidation_cosine = 0.9873`
+3. the next step is matched-seed replication at `2000`, not more activation debugging
 
 Critical anti-goal:
 

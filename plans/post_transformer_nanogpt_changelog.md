@@ -1771,3 +1771,8 @@ Selective-write follow-up:
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_consolidation` as the first direct replay-consolidation prototype on top of the replay winner
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now stores detached latent replay summaries and reports `memory/replay_loss`, `memory/consolidation_loss`, and `memory/consolidation_cosine` so replay can be judged as an explicit consolidation path instead of only a regularizer
 - the new replay-consolidation recipe replays only stale buffer contents so the consolidation loss is not just a same-step self-match
+- the first seed `2000`-step pilot is favorable:
+  replay `2.2464` vs `replay_consolidation` `2.2270`
+- a dense-log debug run confirmed that the replay-consolidation mechanism is genuinely active at replay iterations:
+  `iter 31`: `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.9321`, `memory/consolidation_loss = 0.0726`, `memory/consolidation_cosine = 0.9636`
+  `iter 63`: `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.4907`, `memory/consolidation_loss = 0.0195`, `memory/consolidation_cosine = 0.9873`

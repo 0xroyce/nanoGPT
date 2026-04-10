@@ -1554,9 +1554,13 @@ Implemented next architecture:
 
 Immediate recommendation for this branch:
 
-1. benchmark `replay_consolidation` against `replay` at `2000` steps first
-2. only promote it if validation loss improves or stays near-flat while `memory/consolidation_loss` and `memory/replay_loss` are both clearly live
-3. judge it with the dual-score protocol from the first pilot, but treat fixed-budget quality as the primary gate because replay is already the `5000` endpoint leader
+1. the first seed `2000`-step pilot is encouraging:
+   replay `2.2464` vs `replay_consolidation` `2.2270`
+2. a dense-log debug run confirms the consolidation path is genuinely live at replay iterations rather than being a dead metric path:
+   at `iter 31`, `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.9321`, `memory/consolidation_loss = 0.0726`, `memory/consolidation_cosine = 0.9636`
+   at `iter 63`, `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.4907`, `memory/consolidation_loss = 0.0195`, `memory/consolidation_cosine = 0.9873`
+3. the next honest step is matched-seed replication at `2000` steps
+4. keep fixed-budget quality as the primary gate because replay is still the `5000` endpoint leader
 
 ### Radical sparsity in weight tensors
 
