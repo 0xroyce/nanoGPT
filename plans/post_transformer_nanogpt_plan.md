@@ -1528,13 +1528,23 @@ Implemented next architecture:
 
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `working_memory_loop` as the first direct test of the "working memory loops instead of pure depth" idea
 - this prototype keeps replay enabled, reduces unique backbone depth from `6` blocks to `4`, and adds `2` shared refinement-loop steps that repeatedly reuse retrieval context before the main backbone
-- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now logs `refinement/enabled`, `refinement/steps`, `refinement/step_delta_norm`, and `refinement/memory_context_norm`
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now logs `refinement/enabled`, `refinement/steps`, `refinement/step_scale`, `refinement/step_delta_norm`, and `refinement/memory_context_norm`
 
-Immediate recommendation for this branch:
+First pilot result:
 
-1. benchmark `working_memory_loop` against `replay` at `2000` steps first
-2. only promote it if the loss is competitive and the refinement metrics show non-trivial iterative updates rather than a dead loop
-3. judge it with the dual-score protocol from the first pilot
+1. the initial implementation was unstable and produced `NaN` losses, so the loop path was stabilized by scaling each refinement step by `1 / refinement_steps`
+2. the stabilized rerun is finite and clearly active, but it is still a hard quality miss at `2000` steps:
+   replay `2.2464` vs `working_memory_loop` `5.6831`
+3. the refinement metrics are non-trivial rather than dead:
+   `refinement/step_scale = 0.5`, `refinement/memory_context_norm ~= 8.0`, `refinement/step_delta_norm ~= 10.3`
+4. that means this is not a dead-mechanism failure, but it is still far too weak to justify matched-seed replication in its current form
+
+Updated recommendation for this branch:
+
+1. do not promote the current `working_memory_loop` recipe to matched-seed replication
+2. retire this exact `l4_s2` loop formulation as an active benchmark candidate
+3. keep the refinement instrumentation, because it gives us a useful stability and activity readout for any future iterative-memory design
+4. move to a genuinely different architecture or a much tighter loop formulation rather than spending more routine budget on this recipe
 
 ## Immediate Recommendation From The Top Two
 

@@ -464,21 +464,21 @@ Next architecture ready to pilot:
 - `working_memory_loop` is now available in [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh)
 - it keeps replay enabled, reduces unique depth from `6` blocks to `4`, and adds `2` shared refinement-loop steps before the main backbone
 - treat the new refinement metrics as part of the read:
-  `refinement/enabled`, `refinement/steps`, `refinement/step_delta_norm`, `refinement/memory_context_norm`
+  `refinement/enabled`, `refinement/steps`, `refinement/step_scale`, `refinement/step_delta_norm`, `refinement/memory_context_norm`
 
-Recommended first pilot:
+Observed first-pilot outcome:
 
-```bash
-./scripts/run_learned_boundary_head_benchmark.sh working_memory_loop 1337 2000
-```
+- the original loop path produced `NaN` losses and had to be stabilized with per-step scaling
+- the stabilized rerun is finite and clearly active but is not competitive:
+  replay `2.2464` vs `working_memory_loop` `5.6831` at `2000` steps on seed `1337`
+- activity is real rather than dead:
+  `refinement/step_scale = 0.5`, `refinement/memory_context_norm ~= 8.0`, `refinement/step_delta_norm ~= 10.3`
 
-Then compare:
+Operational conclusion:
 
-```bash
-grep "step 2000" \
-  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1337_2000.log \
-  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_workloop_l4_s2_seed1337_2000.log
-```
+1. do not spend matched-seed or `5000`-step budget on the current `working_memory_loop` recipe
+2. keep the refinement metrics and stabilization logic available for future iterative-memory designs
+3. treat this exact `l4_s2` loop formulation as retired unless a substantially different loop design is proposed
 
 Critical anti-goal:
 

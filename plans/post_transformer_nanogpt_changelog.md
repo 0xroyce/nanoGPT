@@ -1762,3 +1762,9 @@ Selective-write follow-up:
 - the `0.75` rescue pilot recovered past replay on seed `1337` while still keeping write activity materially below baseline, so this is now the first selective-write recipe worth matched-seed replication
 - the matched-seed `2000`-step result did not hold: replay beat the `0.75` selective-write recipe by about `0.0256` on the three-seed mean, so this exact branch should be retired while keeping the new write-selectivity instrumentation
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `working_memory_loop` as the first shared refinement-loop benchmark, and [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) logs refinement metrics so the loop can be judged as a live mechanism from the first pilot
+- the original working-memory loop implementation was unstable and produced `NaN` losses, so [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) was updated to scale each refinement step by `1 / refinement_steps` and to expose `refinement/step_scale`
+- the stabilized `working_memory_loop` rerun is finite and clearly active but still a hard quality miss at `2000` steps:
+  replay `2.2464` vs `working_memory_loop` `5.6831`
+- the loop metrics show real iterative activity rather than a dead mechanism:
+  `refinement/step_scale = 0.5`, `refinement/memory_context_norm ~= 8.0`, `refinement/step_delta_norm ~= 10.3`
+- the current `working_memory_loop` recipe should therefore be retired as a benchmark candidate while keeping the refinement instrumentation for future iterative-memory designs
