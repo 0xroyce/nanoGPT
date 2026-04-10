@@ -1848,6 +1848,7 @@ class GPT(nn.Module):
         memory_metric_history = []
         memory_loss_terms = {}
         router_hint = None
+        step_scale = 1.0 / float(self.config.refinement_steps)
         for step_idx in range(self.config.refinement_steps):
             step_input = x
             memory_context_norm = torch.tensor(0.0, device=x.device)
@@ -1864,19 +1865,23 @@ class GPT(nn.Module):
                     memory_loss_terms.update(step_memory_losses)
                 memory_context_norm = memory_out.detach().norm(dim=-1).mean()
                 router_hint = self.retrieval_memory.last_router_hint
-                x = x + memory_out
+                x = x + memory_out * step_scale
 
             if return_info:
-                x, step_metrics = self.refinement_block(x, return_metrics=True, router_hint=router_hint)
+                refined_x, step_metrics = self.refinement_block(x, return_metrics=True, router_hint=router_hint)
+                refinement_delta = (refined_x - x) * step_scale
+                x = x + refinement_delta
                 step_metrics = dict(step_metrics)
                 step_metrics['refinement/enabled'] = torch.tensor(1.0, device=x.device)
                 step_metrics['refinement/steps'] = torch.tensor(float(self.config.refinement_steps), device=x.device)
+                step_metrics['refinement/step_scale'] = torch.tensor(step_scale, device=x.device)
                 step_metrics['refinement/step_index'] = torch.tensor(float(step_idx + 1), device=x.device)
-                step_metrics['refinement/step_delta_norm'] = (x - step_input).detach().norm(dim=-1).mean()
+                step_metrics['refinement/step_delta_norm'] = refinement_delta.detach().norm(dim=-1).mean()
                 step_metrics['refinement/memory_context_norm'] = memory_context_norm.detach()
                 block_metrics.append(step_metrics)
             else:
-                x = self.refinement_block(x, router_hint=router_hint)
+                refined_x = self.refinement_block(x, router_hint=router_hint)
+                x = x + (refined_x - x) * step_scale
 
         merged_memory_metrics = _merge_metric_lists(memory_metric_history)
         return x, block_metrics, merged_memory_metrics, memory_loss_terms, router_hint
@@ -2110,6 +2115,7 @@ class GPT(nn.Module):
         if not self.config.use_refinement_loop:
             metrics['refinement/enabled'] = torch.tensor(0.0, device=x.device)
             metrics['refinement/steps'] = torch.tensor(0.0, device=x.device)
+            metrics['refinement/step_scale'] = torch.tensor(0.0, device=x.device)
             metrics['refinement/step_index'] = torch.tensor(0.0, device=x.device)
             metrics['refinement/step_delta_norm'] = torch.tensor(0.0, device=x.device)
             metrics['refinement/memory_context_norm'] = torch.tensor(0.0, device=x.device)
