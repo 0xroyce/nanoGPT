@@ -1760,3 +1760,4 @@ Selective-write follow-up:
 - the first `episodic_write_fraction=0.5` pilot was a clean negative on loss while still proving that the selective-write mechanism is live
 - the benchmark runner now also supports `replay_write_gated_soft` as the one softer `episodic_write_fraction=0.75` rescue test before this recipe is retired or replicated
 - the `0.75` rescue pilot recovered past replay on seed `1337` while still keeping write activity materially below baseline, so this is now the first selective-write recipe worth matched-seed replication
+- the matched-seed `2000`-step result did not hold: replay beat the `0.75` selective-write recipe by about `0.0256` on the three-seed mean, so this exact branch should be retired while keeping the new write-selectivity instrumentation

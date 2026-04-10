@@ -445,6 +445,20 @@ grep "step 2000" \
   owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_writegate_novelty_f0p75_w0p01_every32_bs4_seed1537_2000.log
 ```
 
+Observed matched-seed outcome:
+
+- replay averaged about `2.2120`
+- the `replay_write_gated_soft` branch averaged about `2.2376`
+- replay therefore held a three-seed mean edge of about `0.0256`
+- the selective-write metrics still stayed clean and live, so this is a quality miss rather than a dead-mechanism miss
+
+Operational read:
+
+1. retire the current `novelty + 0.75` selective-write recipe as a benchmark candidate
+2. do not spend `5000`-step budget on this branch
+3. keep the write-selectivity instrumentation for future architectures, because it now gives us a reusable efficiency lens
+4. move to a different architecture rather than sweeping more write-fraction caps on this recipe
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

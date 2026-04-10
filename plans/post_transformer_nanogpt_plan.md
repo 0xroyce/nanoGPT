@@ -1505,6 +1505,25 @@ Updated recommendation for this branch:
 3. move immediately to matched-seed `2000`-step replication against replay
 4. only promote it to a longer run if the three-seed mean remains competitive while preserving the write reduction
 
+Observed matched-seed selective-write outcome:
+
+- at `2000` steps, replay reached `2.2464`, `2.2217`, and `2.1678`, averaging about `2.2120`
+- at `2000` steps, the `episodic_write_fraction=0.75` selective-write branch reached `2.2185`, `2.2660`, and `2.2283`, averaging about `2.2376`
+- replay therefore beat the selective-write branch by about `0.0256` on the three-seed mean
+- the write mechanism stayed live and selective across the matched seed set, with `memory/write_fraction=0.75`, `memory/write_gate_enabled=1.0`, and `memory/episodic_valid_fraction=0.75`
+
+Updated conclusion:
+
+- the novelty-gated selective-write idea is now mechanistically validated but not benchmark-competitive in this exact recipe
+- the apparent win on seed `1337` did not survive matched-seed replication
+
+Updated recommendation for this branch:
+
+1. do not promote the current selective-write recipe to a longer `5000`-step benchmark
+2. retire this exact `novelty + 0.75 write fraction` branch as an active candidate
+3. keep the instrumentation, because it gives us a usable write-selectivity benchmark for future memory designs
+4. move on to a genuinely different architecture rather than sweeping more write caps on this formulation
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
