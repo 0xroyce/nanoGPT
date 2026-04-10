@@ -1450,6 +1450,19 @@ Updated recommendation:
 3. before changing the architecture again, measure whether its early advantage is large enough to matter in cost-to-target-loss terms
 4. if the curves do not show a meaningful time-to-threshold gain, retire this exact recurrent recipe and move on
 
+Observed curve-level sample-efficiency read:
+
+- the recurrent-state branch keeps a mean validation-loss edge through about step `3200`
+- it reaches mean validation loss below about `1.75` by step `2200`, while replay crosses that threshold at step `2400`
+- it reaches mean validation loss below about `1.65` by step `2400`, while replay crosses that threshold at step `2600`
+- by about step `3000` the recurrent edge has narrowed to roughly `0.008`
+- around step `3400`, replay catches up and then stays modestly ahead through `5000`
+
+Interpretation:
+
+- this is a real cost-to-threshold gain, not just noise at `2000`
+- the advantage is meaningful in the early and mid-training regime, but it does not extend to the final benchmark endpoint
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:

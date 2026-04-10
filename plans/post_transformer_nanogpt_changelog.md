@@ -1740,3 +1740,13 @@ Interpretation:
 
 - compact working memory is a real short-run gain but not a new long-run quality winner in its current form
 - the next question for this branch is sample efficiency rather than final loss
+
+Observed curve read:
+
+- recurrent state keeps a three-seed mean advantage over replay until roughly step `3200`
+- it reaches about `1.75` and `1.65` mean validation-loss thresholds roughly `200` steps earlier than replay
+- replay catches up around step `3400` and finishes ahead by the `5000` endpoint
+
+Interpretation:
+
+- the branch is now validated as a real sample-efficiency win even though it is not a final-quality winner

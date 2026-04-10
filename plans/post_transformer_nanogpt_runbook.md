@@ -351,6 +351,19 @@ Updated recommendation:
 3. compare full eval curves next to determine whether its cost-to-threshold advantage is actually worth carrying forward
 4. if not, retire this exact recurrent-state recipe and move on
 
+Observed curve-level sample-efficiency outcome:
+
+- the recurrent-state branch stays ahead of replay on the three-seed mean through about step `3200`
+- it gets below roughly `1.75` mean validation loss by step `2200`, versus replay at step `2400`
+- it gets below roughly `1.65` mean validation loss by step `2400`, versus replay at step `2600`
+- replay catches up around step `3400` and then remains modestly better to the `5000` endpoint
+
+Operational read:
+
+1. recurrent state is now the strongest cost-to-moderate-threshold branch tested so far
+2. replay remains the better long-run endpoint branch on the current OWT benchmark
+3. whether to keep the recurrent recipe alive now depends on how much the project values time-to-threshold versus final loss
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed
