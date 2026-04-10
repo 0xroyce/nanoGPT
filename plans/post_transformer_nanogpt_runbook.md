@@ -459,6 +459,27 @@ Operational read:
 3. keep the write-selectivity instrumentation for future architectures, because it now gives us a reusable efficiency lens
 4. move to a different architecture rather than sweeping more write-fraction caps on this recipe
 
+Next architecture ready to pilot:
+
+- `working_memory_loop` is now available in [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh)
+- it keeps replay enabled, reduces unique depth from `6` blocks to `4`, and adds `2` shared refinement-loop steps before the main backbone
+- treat the new refinement metrics as part of the read:
+  `refinement/enabled`, `refinement/steps`, `refinement/step_delta_norm`, `refinement/memory_context_norm`
+
+Recommended first pilot:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh working_memory_loop 1337 2000
+```
+
+Then compare:
+
+```bash
+grep "step 2000" \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1337_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_workloop_l4_s2_seed1337_2000.log
+```
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

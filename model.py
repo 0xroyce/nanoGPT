@@ -1533,6 +1533,8 @@ class GPTConfig:
     memory_topk: int = 0
     memory_retrieval_weight: float = 1.0
     memory_retrieval_warmup_iters: int = 0
+    use_refinement_loop: bool = False
+    refinement_steps: int = 0
     use_recurrent_state: bool = False
     state_dim: int = 0
     recurrent_state_weight: float = 0.0
@@ -1637,6 +1639,8 @@ class GPT(nn.Module):
         assert config.block_size is not None
         if config.use_hard_token_objective and config.use_surprise_weighted_objective:
             raise ValueError("use_hard_token_objective and use_surprise_weighted_objective cannot both be True")
+        if config.use_refinement_loop and config.refinement_steps <= 0:
+            raise ValueError("refinement_steps must be > 0 when use_refinement_loop=True")
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
@@ -1647,6 +1651,7 @@ class GPT(nn.Module):
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
         self.retrieval_memory = RetrievalMemory(config) if config.use_retrieval_memory else None
+        self.refinement_block = Block(config) if config.use_refinement_loop else None
         self.aux_loss_weights = _parse_aux_loss_weights(config.aux_loss_weights)
         self.current_retrieval_weight = config.memory_retrieval_weight
         self.current_hard_token_fraction = config.hard_token_fraction
@@ -1804,7 +1809,18 @@ class GPT(nn.Module):
         memory_metrics = {}
         memory_loss_terms = {}
         router_hint = None
-        if self.retrieval_memory is not None:
+        if self.config.use_refinement_loop:
+            x, refinement_block_metrics, refinement_memory_metrics, refinement_loss_terms, router_hint = self._run_refinement_loop(
+                x,
+                return_info=return_info,
+                update_memory=update_memory,
+            )
+            block_metrics = refinement_block_metrics
+            memory_metrics = refinement_memory_metrics
+            memory_loss_terms = refinement_loss_terms
+        else:
+            block_metrics = []
+        if self.retrieval_memory is not None and not self.config.use_refinement_loop:
             memory_out = self.retrieval_memory(
                 x,
                 return_metrics=return_info,
@@ -1815,7 +1831,6 @@ class GPT(nn.Module):
                 memory_out, memory_metrics, memory_loss_terms = memory_out
             router_hint = self.retrieval_memory.last_router_hint
             x = x + memory_out
-        block_metrics = []
         for block in self.transformer.h:
             if return_info:
                 x, metrics = block(x, return_metrics=True, router_hint=router_hint)
@@ -1824,6 +1839,47 @@ class GPT(nn.Module):
                 x = block(x, router_hint=router_hint)
         x = self.transformer.ln_f(x)
         return x, block_metrics, memory_metrics, memory_loss_terms
+
+    def _run_refinement_loop(self, x, return_info=False, update_memory=True):
+        if not self.config.use_refinement_loop:
+            return x, [], {}, {}, None
+
+        block_metrics = []
+        memory_metric_history = []
+        memory_loss_terms = {}
+        router_hint = None
+        for step_idx in range(self.config.refinement_steps):
+            step_input = x
+            memory_context_norm = torch.tensor(0.0, device=x.device)
+            if self.retrieval_memory is not None:
+                memory_out = self.retrieval_memory(
+                    x,
+                    return_metrics=return_info,
+                    return_aux_losses=return_info and self.config.use_aux_losses and step_idx == self.config.refinement_steps - 1,
+                    update_memory=update_memory and step_idx == self.config.refinement_steps - 1,
+                )
+                if return_info:
+                    memory_out, step_memory_metrics, step_memory_losses = memory_out
+                    memory_metric_history.append(step_memory_metrics)
+                    memory_loss_terms.update(step_memory_losses)
+                memory_context_norm = memory_out.detach().norm(dim=-1).mean()
+                router_hint = self.retrieval_memory.last_router_hint
+                x = x + memory_out
+
+            if return_info:
+                x, step_metrics = self.refinement_block(x, return_metrics=True, router_hint=router_hint)
+                step_metrics = dict(step_metrics)
+                step_metrics['refinement/enabled'] = torch.tensor(1.0, device=x.device)
+                step_metrics['refinement/steps'] = torch.tensor(float(self.config.refinement_steps), device=x.device)
+                step_metrics['refinement/step_index'] = torch.tensor(float(step_idx + 1), device=x.device)
+                step_metrics['refinement/step_delta_norm'] = (x - step_input).detach().norm(dim=-1).mean()
+                step_metrics['refinement/memory_context_norm'] = memory_context_norm.detach()
+                block_metrics.append(step_metrics)
+            else:
+                x = self.refinement_block(x, router_hint=router_hint)
+
+        merged_memory_metrics = _merge_metric_lists(memory_metric_history)
+        return x, block_metrics, merged_memory_metrics, memory_loss_terms, router_hint
 
     def forward(self, idx, targets=None, return_info=False):
         x, block_metrics, memory_metrics, memory_loss_terms = self._forward_backbone(
@@ -2047,6 +2103,16 @@ class GPT(nn.Module):
             1.0 if self.retrieval_memory is not None else 0.0,
             device=x.device,
         )
+        metrics['model/refinement_loop_enabled'] = torch.tensor(
+            1.0 if self.config.use_refinement_loop else 0.0,
+            device=x.device,
+        )
+        if not self.config.use_refinement_loop:
+            metrics['refinement/enabled'] = torch.tensor(0.0, device=x.device)
+            metrics['refinement/steps'] = torch.tensor(0.0, device=x.device)
+            metrics['refinement/step_index'] = torch.tensor(0.0, device=x.device)
+            metrics['refinement/step_delta_norm'] = torch.tensor(0.0, device=x.device)
+            metrics['refinement/memory_context_norm'] = torch.tensor(0.0, device=x.device)
         return GPTForwardOutput(logits=logits, loss=loss, loss_dict=loss_dict, metrics=metrics)
 
     def crop_block_size(self, block_size):

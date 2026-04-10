@@ -1524,6 +1524,18 @@ Updated recommendation for this branch:
 3. keep the instrumentation, because it gives us a usable write-selectivity benchmark for future memory designs
 4. move on to a genuinely different architecture rather than sweeping more write caps on this formulation
 
+Implemented next architecture:
+
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `working_memory_loop` as the first direct test of the "working memory loops instead of pure depth" idea
+- this prototype keeps replay enabled, reduces unique backbone depth from `6` blocks to `4`, and adds `2` shared refinement-loop steps that repeatedly reuse retrieval context before the main backbone
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now logs `refinement/enabled`, `refinement/steps`, `refinement/step_delta_norm`, and `refinement/memory_context_norm`
+
+Immediate recommendation for this branch:
+
+1. benchmark `working_memory_loop` against `replay` at `2000` steps first
+2. only promote it if the loss is competitive and the refinement metrics show non-trivial iterative updates rather than a dead loop
+3. judge it with the dual-score protocol from the first pilot
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
