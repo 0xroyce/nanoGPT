@@ -1752,3 +1752,8 @@ Interpretation:
 - the branch is now validated as a real sample-efficiency win even though it is not a final-quality winner
 - [analyze_threshold_benchmark.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/analyze_threshold_benchmark.py) now formalizes this comparison so future threshold claims can be scored from matched-seed logs instead of manual curve inspection
 - the benchmark process now explicitly treats endpoint quality and time-to-threshold as separate first-class scores
+
+Selective-write follow-up:
+
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_write_gated` as the first novelty-gated episodic-write benchmark
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now logs explicit episodic write-selectivity metrics so this branch can be judged on both loss and write efficiency from the first pilot

@@ -1470,6 +1470,18 @@ Standardized follow-up:
 - keep threshold claims tied to operationally meaningful cutoffs instead of ad hoc visual reads from the curves
 - only treat a threshold-based win as promotion-worthy when the endpoint loss tradeoff is acceptable for the intended budget regime
 
+Implemented next architecture:
+
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_write_gated` as the first direct Phase 7A selective-write test
+- this prototype keeps the validated replay branch intact and adds a novelty-gated episodic write policy with `episodic_write_fraction=0.5`
+- the memory module now logs `memory/write_gate_mean`, `memory/write_gate_entropy`, `memory/write_fraction`, `memory/slot_refresh_fraction`, and `memory/write_teacher_signal_mean`
+
+Immediate recommendation for this branch:
+
+1. benchmark `replay_write_gated` against `replay` at `2000` steps first
+2. only promote it if the loss stays competitive while the write metrics show materially more selective episodic refresh
+3. judge it with the dual-score protocol from the first pilot instead of waiting for a longer run to decide what regime it helps
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:

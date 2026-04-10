@@ -387,6 +387,28 @@ What to treat as a real threshold win:
 2. prefer thresholds that matter operationally for budget decisions, such as `1.75` and `1.65` here
 3. do not promote a branch on threshold alone if the endpoint regression is too large for the target deployment budget
 
+Next architecture ready to pilot:
+
+- `replay_write_gated` is now available in [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) as the first selective episodic-write prototype
+- it keeps replay enabled and gates episodic writes by novelty with a `0.5` write fraction target
+- treat the new write metrics as part of the decision, not just the loss:
+  `memory/write_gate_mean`, `memory/write_gate_entropy`, `memory/write_fraction`, `memory/slot_refresh_fraction`, `memory/write_teacher_signal_mean`
+
+Recommended first pilot:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh replay 1337 2000
+./scripts/run_learned_boundary_head_benchmark.sh replay_write_gated 1337 2000
+```
+
+Then compare:
+
+```bash
+grep "step 2000" \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1337_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_writegate_novelty_f0p5_w0p01_every32_bs4_seed1337_2000.log
+```
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

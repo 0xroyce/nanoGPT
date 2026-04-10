@@ -357,6 +357,8 @@ class RetrievalMemory(nn.Module):
         self.episodic_memory_slots = config.episodic_memory_slots
         self.episodic_memory_topk = config.episodic_memory_topk
         self.episodic_memory_weight = config.episodic_memory_weight
+        self.episodic_write_gate_mode = config.episodic_write_gate_mode
+        self.episodic_write_fraction = config.episodic_write_fraction
         self.use_event_segmented_memory = config.use_event_segmented_memory
         self.use_chunked_episodic_memory = config.use_chunked_episodic_memory
         self.event_boundary_mode = config.event_boundary_mode
@@ -378,6 +380,7 @@ class RetrievalMemory(nn.Module):
         self.last_memory_utility_logits = None
         self.last_event_metrics = {}
         self.last_event_aux_losses = {}
+        self.last_write_metrics = {}
         self.source_router = nn.Linear(config.n_embd, 2, bias=config.bias)
         self.controller_router = nn.Linear(config.n_embd, 1, bias=config.bias)
         self.external_router = nn.Linear(config.n_embd, 1, bias=config.bias)
@@ -416,6 +419,12 @@ class RetrievalMemory(nn.Module):
                 raise ValueError("episodic_memory_slots must be > 0 when use_episodic_memory=True")
             if self.episodic_memory_topk <= 0:
                 raise ValueError("episodic_memory_topk must be > 0 when use_episodic_memory=True")
+            if self.episodic_write_gate_mode not in {'none', 'novelty'}:
+                raise ValueError(
+                    "episodic_write_gate_mode must be one of {'none', 'novelty'} when use_episodic_memory=True"
+                )
+            if not 0.0 < self.episodic_write_fraction <= 1.0:
+                raise ValueError("episodic_write_fraction must be in (0, 1] when use_episodic_memory=True")
             self.register_buffer("episodic_memory", torch.zeros(0, self.episodic_memory_slots, config.n_embd))
             self.register_buffer("episodic_memory_valid", torch.zeros(0, self.episodic_memory_slots, dtype=torch.bool))
             self.register_buffer("episodic_memory_ptr", torch.zeros(0, dtype=torch.long))
@@ -425,6 +434,10 @@ class RetrievalMemory(nn.Module):
         if self.use_event_segmented_memory:
             if not self.use_episodic_memory:
                 raise ValueError("use_event_segmented_memory=True requires use_episodic_memory=True")
+            if self.episodic_write_gate_mode != 'none':
+                raise ValueError(
+                    "episodic_write_gate_mode != 'none' is currently only supported on non-segmented episodic memory"
+                )
             if self.event_boundary_mode not in {'hidden_state_novelty', 'uniform', 'learned_boundary_head'}:
                 raise ValueError(
                     "event_boundary_mode must be one of {'hidden_state_novelty', 'uniform', 'learned_boundary_head'} "
@@ -540,6 +553,75 @@ class RetrievalMemory(nn.Module):
             'memory/event_teacher_agreement': torch.tensor(0.0, device=device),
             'memory/event_chunked_enabled': torch.tensor(0.0, device=device),
         }
+
+    def _get_default_write_metrics(self, device):
+        if not self.use_episodic_memory:
+            return {
+                'memory/write_gate_enabled': torch.tensor(0.0, device=device),
+                'memory/write_gate_mean': torch.tensor(0.0, device=device),
+                'memory/write_gate_entropy': torch.tensor(0.0, device=device),
+                'memory/write_fraction': torch.tensor(0.0, device=device),
+                'memory/slot_refresh_fraction': torch.tensor(0.0, device=device),
+                'memory/write_teacher_signal_mean': torch.tensor(0.0, device=device),
+            }
+        return {
+            'memory/write_gate_enabled': torch.tensor(
+                1.0 if self.episodic_write_gate_mode != 'none' else 0.0,
+                device=device,
+            ),
+            'memory/write_gate_mean': torch.tensor(1.0, device=device),
+            'memory/write_gate_entropy': torch.tensor(0.0, device=device),
+            'memory/write_fraction': torch.tensor(1.0, device=device),
+            'memory/slot_refresh_fraction': torch.tensor(0.0, device=device),
+            'memory/write_teacher_signal_mean': torch.tensor(0.0, device=device),
+        }
+
+    def _record_write_metrics(self, gate_probs, write_mask, refresh_mask, teacher_signal):
+        if gate_probs is None or write_mask is None or teacher_signal is None:
+            self.last_write_metrics = self._get_default_write_metrics(self.query.weight.device)
+            return
+
+        device = gate_probs.device
+        write_mask_float = write_mask.float()
+        refresh_fraction = torch.tensor(0.0, device=device)
+        if refresh_mask is not None and write_mask_float.sum().item() > 0:
+            refresh_fraction = (
+                refresh_mask.float().sum() / write_mask_float.sum().clamp_min(1.0)
+            ).detach()
+        entropy = -(
+            gate_probs.clamp_min(1e-9).log() * gate_probs
+            + (1.0 - gate_probs).clamp_min(1e-9).log() * (1.0 - gate_probs)
+        ).mean()
+        self.last_write_metrics = {
+            'memory/write_gate_enabled': torch.tensor(
+                1.0 if self.episodic_write_gate_mode != 'none' else 0.0,
+                device=device,
+            ),
+            'memory/write_gate_mean': gate_probs.mean().detach(),
+            'memory/write_gate_entropy': entropy.detach(),
+            'memory/write_fraction': write_mask_float.mean().detach(),
+            'memory/slot_refresh_fraction': refresh_fraction,
+            'memory/write_teacher_signal_mean': teacher_signal.mean().detach(),
+        }
+
+    def _compute_episodic_write_novelty(self, summaries):
+        valid_mask = self.episodic_memory_valid
+        has_valid = valid_mask.any(dim=1)
+        if not bool(has_valid.any().item()):
+            return torch.ones(summaries.size(0), device=summaries.device, dtype=summaries.dtype)
+
+        normalized_summaries = F.normalize(summaries.detach(), dim=-1, eps=1e-8)
+        normalized_memory = F.normalize(self.episodic_memory.detach(), dim=-1, eps=1e-8)
+        similarity = torch.einsum('bd,bsd->bs', normalized_summaries, normalized_memory)
+        similarity = similarity.masked_fill(~valid_mask, -1.0)
+        max_similarity = similarity.max(dim=1).values
+        novelty = 1.0 - max_similarity
+        novelty = torch.where(
+            has_valid,
+            novelty,
+            torch.ones_like(novelty),
+        )
+        return novelty
 
     def _project_event_summary(self, segment, token_count):
         summary = segment.mean(dim=0)
@@ -933,6 +1015,10 @@ class RetrievalMemory(nn.Module):
             summaries = event_summaries
             summary_valid = event_valid
             summary_spans = event_spans
+            all_gate_probs = []
+            all_write_masks = []
+            all_refresh_masks = []
+            all_teacher_signals = []
             if summaries is None or summary_valid is None or summary_spans is None:
                 summaries, summary_valid, summary_spans = self._build_event_summaries(x.detach())
             if summaries is None or summary_valid is None or summary_spans is None:
@@ -945,22 +1031,57 @@ class RetrievalMemory(nn.Module):
                 write_values = summaries[batch_idx, :write_count]
                 write_spans = summary_spans[batch_idx, :write_count]
                 start = int(self.episodic_memory_ptr[batch_idx].item())
+                existing_valid = self.episodic_memory_valid[batch_idx]
                 target_indices = (
                     torch.arange(write_count, device=write_values.device) + start
                 ) % self.episodic_memory_slots
+                refresh_flags = existing_valid.index_select(0, target_indices)
                 self.episodic_memory[batch_idx].index_copy_(0, target_indices, write_values)
                 self.episodic_memory_valid[batch_idx].index_fill_(0, target_indices, True)
                 self.episodic_memory_span[batch_idx].index_copy_(0, target_indices, write_spans)
                 self.episodic_memory_ptr[batch_idx] = (start + write_count) % self.episodic_memory_slots
+                all_gate_probs.append(torch.ones(write_count, device=write_values.device, dtype=write_values.dtype))
+                all_write_masks.append(torch.ones(write_count, device=write_values.device, dtype=torch.bool))
+                all_refresh_masks.append(refresh_flags)
+                all_teacher_signals.append(torch.zeros(write_count, device=write_values.device, dtype=write_values.dtype))
+            if all_gate_probs:
+                self._record_write_metrics(
+                    torch.cat(all_gate_probs, dim=0),
+                    torch.cat(all_write_masks, dim=0),
+                    torch.cat(all_refresh_masks, dim=0),
+                    torch.cat(all_teacher_signals, dim=0),
+                )
+            else:
+                self.last_write_metrics = self._get_default_write_metrics(local_slots.device)
             return
 
         summaries = local_slots.detach().mean(dim=1)
         batch_indices = torch.arange(batch_size, device=summaries.device)
+        teacher_signal = torch.zeros(batch_size, device=summaries.device, dtype=summaries.dtype)
+        if self.episodic_write_gate_mode == 'novelty':
+            teacher_signal = self._compute_episodic_write_novelty(summaries)
+            centered_signal = teacher_signal - teacher_signal.mean()
+            signal_scale = teacher_signal.std(unbiased=False).clamp_min(1e-6)
+            gate_probs = torch.sigmoid(centered_signal / signal_scale)
+            write_count = max(1, min(batch_size, int(math.ceil(batch_size * self.episodic_write_fraction))))
+            selected_indices = torch.topk(teacher_signal, k=write_count, dim=0).indices
+            write_mask = torch.zeros(batch_size, device=summaries.device, dtype=torch.bool)
+            write_mask[selected_indices] = True
+        else:
+            gate_probs = torch.ones(batch_size, device=summaries.device, dtype=summaries.dtype)
+            write_mask = torch.ones(batch_size, device=summaries.device, dtype=torch.bool)
+
+        write_indices = batch_indices[write_mask]
         ptr = self.episodic_memory_ptr
-        self.episodic_memory[batch_indices, ptr] = summaries
-        self.episodic_memory_valid[batch_indices, ptr] = True
-        self.episodic_memory_span[batch_indices, ptr] = 1
-        self.episodic_memory_ptr = (ptr + 1) % self.episodic_memory_slots
+        refresh_mask = self.episodic_memory_valid[write_indices, ptr[write_indices]] if write_indices.numel() > 0 else torch.zeros(0, device=summaries.device, dtype=torch.bool)
+        if write_indices.numel() > 0:
+            write_ptr = ptr[write_indices]
+            self.episodic_memory[write_indices, write_ptr] = summaries[write_indices]
+            self.episodic_memory_valid[write_indices, write_ptr] = True
+            self.episodic_memory_span[write_indices, write_ptr] = 1
+            self.episodic_memory_ptr[write_indices] = (write_ptr + 1) % self.episodic_memory_slots
+
+        self._record_write_metrics(gate_probs, write_mask, refresh_mask, teacher_signal)
 
     @torch.no_grad()
     def reset_memory(self):
@@ -984,6 +1105,7 @@ class RetrievalMemory(nn.Module):
         self.last_router_hint = None
         self.last_memory_utility_logits = None
         self.last_event_metrics = {}
+        self.last_write_metrics = {}
 
     def set_memory_update_mode(self, enabled):
         self.memory_update_during_eval = bool(enabled)
@@ -1325,6 +1447,8 @@ class RetrievalMemory(nn.Module):
         if self.use_event_segmented_memory:
             event_metrics['memory/event_slot_utilization'] = metrics['memory/episodic_slot_utilization']
         metrics.update(event_metrics)
+        write_metrics = dict(self.last_write_metrics) if self.last_write_metrics else self._get_default_write_metrics(x.device)
+        metrics.update(write_metrics)
 
         aux_losses = {}
         if return_aux_losses:
@@ -1425,6 +1549,8 @@ class GPTConfig:
     episodic_memory_slots: int = 0
     episodic_memory_topk: int = 1
     episodic_memory_weight: float = 0.0
+    episodic_write_gate_mode: str = 'none'
+    episodic_write_fraction: float = 1.0
     use_event_segmented_memory: bool = False
     use_chunked_episodic_memory: bool = False
     event_boundary_mode: str = 'hidden_state_novelty'
