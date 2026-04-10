@@ -77,16 +77,16 @@ The next phase should be guided by the current strongest neuroscience-inspired c
 
 That means the immediate next experiments should prioritize:
 
-1. event segmentation and chunked episodic memory
-2. selective episodic writes driven by surprise, novelty, or utility
-3. replay and consolidation across timescales as an optional substrate
-4. compact working memory / recurrent state
+1. event-structured chunked episodic memory as the main architecture family
+2. dual-score evaluation of sample efficiency and endpoint quality
+3. selective episodic writes, replay, and consolidation only as supporting ingredients
+4. compact working memory only if it improves cost-to-threshold without unacceptable endpoint regression
 5. richer memory-centered objectives only after the memory substrate improves
 
 Highest-upside breakthrough prototypes now specified in the main plan:
 
-1. replay-based complementary learning systems
-2. event segmentation and chunked episodic memory
+1. event segmentation and chunked episodic memory
+2. replay-based complementary learning systems as an optional substrate, not the main tuning target
 
 Those prototype specs live in [post_transformer_nanogpt_plan.md](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/plans/post_transformer_nanogpt_plan.md) and should be treated as the next implementation candidates after the locked winner.
 
@@ -98,6 +98,14 @@ Replay status update:
 - replay therefore averages about `1.2204` at `5000` steps, effectively tied with the frozen winner average of about `1.2192`
 - current interpretation: replay is now a validated viable substrate, not yet a clear new standalone winner
 - current recommendation: stop spending time on tiny replay sweeps and move the main implementation effort to event segmentation and chunked episodic memory
+
+Execution policy from here:
+
+1. keep replay frozen as the `5000`-step endpoint reference
+2. treat `chunked_autonomous` as the current efficiency-positive substrate rather than as a promoted winner
+3. use [analyze_threshold_benchmark.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/analyze_threshold_benchmark.py) to score future branches on explicit threshold crossings before spending more long-run budget
+4. do not restart standalone learned-boundary sweeps, replay-consolidation sweeps, or replay-plus-chunked schedule sweeps unless a new architectural ingredient changes the memory substrate itself
+5. the next implementation branch should therefore be a revised chunked-memory architecture aimed at keeping the early advantage deeper into training
 
 Prototype B heuristic status update:
 
