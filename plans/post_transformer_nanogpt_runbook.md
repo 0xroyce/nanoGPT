@@ -364,6 +364,22 @@ Operational read:
 2. replay remains the better long-run endpoint branch on the current OWT benchmark
 3. whether to keep the recurrent recipe alive now depends on how much the project values time-to-threshold versus final loss
 
+Standardized threshold benchmark command:
+
+```bash
+python scripts/analyze_threshold_benchmark.py \
+  --group replay=owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1337_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1437_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1537_5000.log \
+  --group recurrent_state=owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_recurrent_state_d128_rw0p25_seed1337_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_recurrent_state_d128_rw0p25_seed1437_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_recurrent_state_d128_rw0p25_seed1537_5000.log \
+  --threshold 1.75 \
+  --threshold 1.65
+```
+
+What to treat as a real threshold win:
+
+1. require a matched-seed mean crossing advantage, not just a single lucky run
+2. prefer thresholds that matter operationally for budget decisions, such as `1.75` and `1.65` here
+3. do not promote a branch on threshold alone if the endpoint regression is too large for the target deployment budget
+
 Critical anti-goal:
 
 - do not interpret tiny threshold changes as progress once the structural segmentation behavior is already fixed

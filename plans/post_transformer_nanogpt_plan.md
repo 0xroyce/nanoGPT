@@ -1463,6 +1463,12 @@ Interpretation:
 - this is a real cost-to-threshold gain, not just noise at `2000`
 - the advantage is meaningful in the early and mid-training regime, but it does not extend to the final benchmark endpoint
 
+Standardized follow-up:
+
+- use [analyze_threshold_benchmark.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/analyze_threshold_benchmark.py) to score future sample-efficiency claims against explicit matched-seed validation-loss thresholds
+- keep threshold claims tied to operationally meaningful cutoffs instead of ad hoc visual reads from the curves
+- only treat a threshold-based win as promotion-worthy when the endpoint loss tradeoff is acceptable for the intended budget regime
+
 ## Immediate Recommendation From The Top Two
 
 If only one breakthrough prototype is implemented next, it should now be:
