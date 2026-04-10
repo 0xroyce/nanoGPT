@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 4 ]]; then
-  echo "Usage: $0 {replay|replay_write_gated|heuristic|teacher_forced|autonomous|chunked_heuristic|chunked_autonomous|chunked_autonomous_replay|chunked_autonomous_replay_delayed|recurrent_state} {seed} [max_iters] [profile]"
+  echo "Usage: $0 {replay|replay_write_gated|replay_write_gated_soft|heuristic|teacher_forced|autonomous|chunked_heuristic|chunked_autonomous|chunked_autonomous_replay|chunked_autonomous_replay_delayed|recurrent_state} {seed} [max_iters] [profile]"
   exit 1
 fi
 
@@ -60,6 +60,18 @@ case "$variant" in
       --memory_replay_weight=0.01
       --episodic_write_gate_mode=novelty
       --episodic_write_fraction=0.5
+    )
+    ;;
+  replay_write_gated_soft)
+    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_writegate_novelty_f0p75_w0p01_every32_bs4${profile_suffix}_seed${seed}_${max_iters}"
+    extra_args=(
+      --use_memory_replay_consolidation=True
+      --memory_replay_buffer_size=128
+      --memory_replay_every=32
+      --memory_replay_batch_size=4
+      --memory_replay_weight=0.01
+      --episodic_write_gate_mode=novelty
+      --episodic_write_fraction=0.75
     )
     ;;
   heuristic)

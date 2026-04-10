@@ -1757,3 +1757,5 @@ Selective-write follow-up:
 
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_write_gated` as the first novelty-gated episodic-write benchmark
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now logs explicit episodic write-selectivity metrics so this branch can be judged on both loss and write efficiency from the first pilot
+- the first `episodic_write_fraction=0.5` pilot was a clean negative on loss while still proving that the selective-write mechanism is live
+- the benchmark runner now also supports `replay_write_gated_soft` as the one softer `episodic_write_fraction=0.75` rescue test before this recipe is retired or replicated

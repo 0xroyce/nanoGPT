@@ -1476,11 +1476,20 @@ Implemented next architecture:
 - this prototype keeps the validated replay branch intact and adds a novelty-gated episodic write policy with `episodic_write_fraction=0.5`
 - the memory module now logs `memory/write_gate_mean`, `memory/write_gate_entropy`, `memory/write_fraction`, `memory/slot_refresh_fraction`, and `memory/write_teacher_signal_mean`
 
-Immediate recommendation for this branch:
+Observed first selective-write outcome:
 
-1. benchmark `replay_write_gated` against `replay` at `2000` steps first
-2. only promote it if the loss stays competitive while the write metrics show materially more selective episodic refresh
-3. judge it with the dual-score protocol from the first pilot instead of waiting for a longer run to decide what regime it helps
+- at `2000` steps on seed `1337`, replay reached about `2.2464`
+- the first novelty-gated write prototype with `episodic_write_fraction=0.5` reached about `2.2774`
+- that is a regression of about `0.0310`, so the first cap was too aggressive to promote directly
+- the mechanism itself stayed fully live: `memory/write_gate_enabled=1.0`, `memory/write_fraction=0.5`, and `memory/episodic_valid_fraction=0.5`
+- `memory/slot_refresh_fraction=0.0` is expected in this pilot because the episodic buffer only filled halfway by `2000`
+
+Updated recommendation for this branch:
+
+1. do not promote the `0.5` write-cap recipe
+2. do treat the live write metrics as evidence that selective episodic writing is now testable in this harness
+3. run one softer rescue pilot with `episodic_write_fraction=0.75` before retiring the selective-write path
+4. if the `0.75` pilot still loses clearly, retire this exact selective-write recipe quickly instead of sweeping more caps
 
 ## Immediate Recommendation From The Top Two
 

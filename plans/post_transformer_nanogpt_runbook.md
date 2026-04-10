@@ -394,11 +394,17 @@ Next architecture ready to pilot:
 - treat the new write metrics as part of the decision, not just the loss:
   `memory/write_gate_mean`, `memory/write_gate_entropy`, `memory/write_fraction`, `memory/slot_refresh_fraction`, `memory/write_teacher_signal_mean`
 
-Recommended first pilot:
+Observed first pilot:
+
+- replay reached `2.2464` at `2000` on seed `1337`
+- `replay_write_gated` reached `2.2774`, so the first `0.5`-fraction selective-write recipe lost by about `0.0310`
+- the write metrics were clean and meaningful: `memory/write_fraction=0.5`, `memory/write_gate_enabled=1.0`, and `memory/episodic_valid_fraction=0.5`
+- that means the mechanism is working, but the first cap is too harsh
+
+Recommended rescue pilot:
 
 ```bash
-./scripts/run_learned_boundary_head_benchmark.sh replay 1337 2000
-./scripts/run_learned_boundary_head_benchmark.sh replay_write_gated 1337 2000
+./scripts/run_learned_boundary_head_benchmark.sh replay_write_gated_soft 1337 2000
 ```
 
 Then compare:
@@ -406,8 +412,13 @@ Then compare:
 ```bash
 grep "step 2000" \
   owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1337_2000.log \
-  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_writegate_novelty_f0p5_w0p01_every32_bs4_seed1337_2000.log
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_writegate_novelty_f0p75_w0p01_every32_bs4_seed1337_2000.log
 ```
+
+Decision rule:
+
+1. if `0.75` stays clearly behind replay, retire this selective-write recipe quickly
+2. if it stays near replay while still cutting writes materially, then it becomes worth matched-seed replication
 
 Critical anti-goal:
 
