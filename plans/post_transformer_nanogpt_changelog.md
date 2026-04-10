@@ -1776,3 +1776,7 @@ Selective-write follow-up:
 - a dense-log debug run confirmed that the replay-consolidation mechanism is genuinely active at replay iterations:
   `iter 31`: `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.9321`, `memory/consolidation_loss = 0.0726`, `memory/consolidation_cosine = 0.9636`
   `iter 63`: `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.4907`, `memory/consolidation_loss = 0.0195`, `memory/consolidation_cosine = 0.9873`
+- matched-seed `2000` replication did not preserve the first-seed win:
+  replay val losses `2.2464`, `2.2217`, `2.1678` for a mean of `2.2120`
+  replay_consolidation val losses `2.2270`, `2.2254`, `2.1915` for a mean of `2.2146`
+- the branch should therefore be treated as a real but neutral-to-slightly-worse mechanism, not as the next promoted `5000` benchmark candidate

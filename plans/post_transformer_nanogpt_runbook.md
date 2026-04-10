@@ -487,7 +487,10 @@ Operational gate:
 2. a short dense-log debug run verified that the branch is really active on replay iterations:
    `iter 31`: `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.9321`, `memory/consolidation_loss = 0.0726`, `memory/consolidation_cosine = 0.9636`
    `iter 63`: `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.4907`, `memory/consolidation_loss = 0.0195`, `memory/consolidation_cosine = 0.9873`
-3. the next step is matched-seed replication at `2000`, not more activation debugging
+3. matched-seed replication at `2000` came back slightly negative:
+   replay mean val loss `2.2120`
+   replay_consolidation mean val loss `2.2146`
+4. do not promote this exact replay-consolidation recipe to `5000`; keep it as a validated instrumentation branch instead
 
 Critical anti-goal:
 

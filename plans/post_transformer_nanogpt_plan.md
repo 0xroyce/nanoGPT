@@ -1552,15 +1552,18 @@ Implemented next architecture:
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now stores a detached latent summary with replay traces and reports `memory/replay_loss`, `memory/consolidation_loss`, and `memory/consolidation_cosine`
 - the new recipe keeps the validated replay settings, adds a small latent-summary consolidation objective, and replays only stale buffer contents so the consolidation loss is not trivial self-matching
 
-Immediate recommendation for this branch:
+Current recommendation for this branch:
 
-1. the first seed `2000`-step pilot is encouraging:
+1. the first seed `2000`-step pilot was encouraging:
    replay `2.2464` vs `replay_consolidation` `2.2270`
-2. a dense-log debug run confirms the consolidation path is genuinely live at replay iterations rather than being a dead metric path:
+2. a dense-log debug run confirmed the consolidation path is genuinely live at replay iterations rather than being a dead metric path:
    at `iter 31`, `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.9321`, `memory/consolidation_loss = 0.0726`, `memory/consolidation_cosine = 0.9636`
    at `iter 63`, `memory/replay_batch_size = 4.0`, `memory/replay_loss = 8.4907`, `memory/consolidation_loss = 0.0195`, `memory/consolidation_cosine = 0.9873`
-3. the next honest step is matched-seed replication at `2000` steps
-4. keep fixed-budget quality as the primary gate because replay is still the `5000` endpoint leader
+3. matched-seed replication at `2000` did not hold as a win:
+   replay val losses `2.2464`, `2.2217`, `2.1678` for a mean of `2.2120`
+   replay_consolidation val losses `2.2270`, `2.2254`, `2.1915` for a mean of `2.2146`
+4. the right conclusion is that replay-consolidation is mechanistically real and nearly neutral, but this exact recipe should not be promoted to `5000`
+5. keep the consolidation instrumentation because it gives us a reusable diagnostic lens for future replay-based designs
 
 ### Radical sparsity in weight tensors
 
