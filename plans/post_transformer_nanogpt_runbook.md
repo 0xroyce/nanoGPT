@@ -111,6 +111,7 @@ Execution policy from here:
 8. `chunked_autonomous_refresh` is now the next revision: it keeps chunk admission intact and instead uses novelty to influence which existing episodic slot gets refreshed
 9. the first seed-`1337` pilot for `chunked_autonomous_refresh` reached `2.1684` at `2000` steps, so the replacement policy is live but still not strong enough to justify matched-seed replication
 10. `chunked_autonomous_structured` is now the next revision after the refresh heuristic: it keeps the same chunk policy but upgrades the chunk summary itself from simple pooled endpoints to a richer structured representation with midpoint, half-level summaries, and end-start delta features
+11. the first seed-`1337` pilot for `chunked_autonomous_structured` reached `2.1884` at `2000` steps, so the representation change is live but also not strong enough to justify matched-seed replication
 
 Prototype B heuristic status update:
 

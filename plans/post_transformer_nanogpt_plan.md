@@ -1350,6 +1350,9 @@ Updated conclusion:
 - the first similarity-refresh follow-up improves on the failed admission gate but still misses the frontier:
   on seed `1337` at `2000` steps, `chunked_autonomous_refresh` reached `2.1684`
   that beats replay `2.2464` by about `0.0780`, but still trails the current `chunked_autonomous` reference at `2.0518` by about `0.1166`
+- the first structured-summary follow-up also misses the frontier:
+  on seed `1337` at `2000` steps, `chunked_autonomous_structured` reached `2.1884`
+  that beats replay `2.2464` by about `0.0580`, but trails the current `chunked_autonomous` reference at `2.0518` by about `0.1366`
 
 Updated recommendation:
 
