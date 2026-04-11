@@ -241,12 +241,19 @@ Chunked long-run outcome:
 - at `5000` steps on the `episodic32` profile, `chunked_autonomous` averaged about `1.4802`
 - interpretation: chunked memory improves early sample efficiency but does not currently beat replay on final loss or reduced-budget robustness
 
+Chunked threshold outcome:
+
+- at threshold `1.9000`, replay and `chunked_autonomous` both cross on the mean curve at step `2000`
+- at threshold `1.7500`, `chunked_autonomous` crosses on the mean curve at step `2200` while replay crosses at step `2400`
+- at threshold `1.6500`, both branches cross on the mean curve at step `2600`
+- operational interpretation: chunked memory has a real moderate-threshold speed advantage, but that advantage does not extend to the stronger late threshold or the final endpoint
+
 Updated recommendation:
 
 1. do not promote standalone `chunked_autonomous` as the new benchmark winner
 2. do keep chunked memory as a real efficiency-positive ingredient
-3. combine chunked autonomous writes with the validated replay setting as the next hybrid prototype
-4. run that hybrid first at `2000` steps before committing more `5000`-step budget
+3. treat chunked memory as a dual-score substrate and only promote revisions that preserve the threshold edge while improving the endpoint tradeoff
+4. do not spend fresh routine budget on more standalone chunked stress sweeps now that the threshold story is quantified
 
 Suggested next benchmark:
 

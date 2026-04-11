@@ -1780,3 +1780,8 @@ Selective-write follow-up:
   replay val losses `2.2464`, `2.2217`, `2.1678` for a mean of `2.2120`
   replay_consolidation val losses `2.2270`, `2.2254`, `2.1915` for a mean of `2.2146`
 - the branch should therefore be treated as a real but neutral-to-slightly-worse mechanism, not as the next promoted `5000` benchmark candidate
+- a matched-seed threshold benchmark against `chunked_autonomous` clarified the current operational tradeoff:
+  at threshold `1.7500`, `chunked_autonomous` reaches the mean crossing at step `2200` while replay reaches it at step `2400`
+  at threshold `1.6500`, both branches reach the mean crossing at step `2600`
+  at the fixed `5000`-step endpoint, replay still wins by about `0.0013`
+- current read: chunked memory is the clearest efficiency-positive substrate in the memory-hierarchy line, but it still needs a stronger late-training story before it should replace replay as the promoted benchmark branch

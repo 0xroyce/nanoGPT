@@ -1340,14 +1340,18 @@ Updated conclusion:
 - chunked episodic memory is now a real sample-efficiency signal, not yet a standalone quality or robustness winner
 - the important positive result is that chunked writes learn to compress memory aggressively while keeping early and mid-training quality ahead of replay
 - the important negative result is that replay catches up by late training and still wins under a tighter episodic budget
+- the matched-seed threshold benchmark makes the operational tradeoff explicit:
+  at threshold `1.7500`, `chunked_autonomous` reaches the mean crossing at step `2200` while replay reaches it at step `2400`
+  at threshold `1.6500`, both branches reach the mean crossing at step `2600`
+  at the fixed `5000`-step endpoint, replay still wins by about `0.0013`
 
 Updated recommendation:
 
 1. stop running more standalone `chunked_autonomous` stress sweeps as if it were still a likely final-loss winner
 2. preserve chunked episodic memory as an efficiency-positive substrate
-3. combine the two validated strengths next: chunked autonomous writes plus replay-based consolidation
-4. use the existing replay setting `memory_replay_weight=0.01`, `memory_replay_every=32`, and `memory_replay_batch_size=4` as the first hybrid recipe
-5. benchmark that hybrid first at `2000` steps before spending more `5000`-step budget
+3. treat chunked memory as a dual-score branch rather than an endpoint branch
+4. improve the chunked memory substrate itself before spending more budget on auxiliary replay-style composition
+5. only promote a revised chunked branch if it preserves the threshold edge while improving the endpoint tradeoff
 
 Observed first hybrid outcome:
 
