@@ -1827,3 +1827,7 @@ Selective-write follow-up:
 - the stricter teacher finally behaved as intended, but the underlying episodic-vs-local advantage remained too weak to supervise profitably, so the replay-side utility line should be retired
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_recurrent` as the next non-objective pivot: combine chunked episodic memory with the already validated recurrent scratchpad
 - current read: this is the most plausible remaining architectural composition because chunked memory and recurrent state are the two clearest short-run sample-efficiency signals on this branch
+- the first `chunked_autonomous_recurrent` pilot on seed `1337` reached `2.2440` validation loss at `2000` steps
+- that is only a near-tie with replay `2.2464`, while trailing both standalone parents badly: `chunked_autonomous` `2.0518` and recurrent-state `2.1368`
+- the mechanism is live on both sides at once, with chunked selection around `1.35` summaries per sequence and recurrent gate mean around `0.47`, but the composition still does not preserve either branch's short-run edge
+- current read: naive chunked-plus-recurrent composition should be retired quickly as another trusted negative hybrid

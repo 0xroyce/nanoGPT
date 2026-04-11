@@ -1779,6 +1779,9 @@ Current next branch:
 - if the plain positive-margin teacher still labels too many weak wins, add both an absolute margin floor and a hard cap on teacher fraction before retiring the retrieval-usefulness line
 - after retiring the replay-side utility line, the best next non-objective branch is to combine the two strongest short-run architectural signals:
   chunked episodic memory for compressed recall plus a compact recurrent scratchpad for active local context
+- the first `chunked_autonomous_recurrent` pilot on seed `1337` reached `2.2440` at `2000` steps
+- that is effectively a tie with replay `2.2464`, but it badly trails both `chunked_autonomous` `2.0518` and the standalone recurrent branch `2.1368`
+- current read: naive chunked-plus-recurrent composition blunts both parent advantages instead of combining them, so this exact hybrid should not be promoted
 
 Important note:
 
