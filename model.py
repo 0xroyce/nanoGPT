@@ -366,6 +366,7 @@ class RetrievalMemory(nn.Module):
         self.event_boundary_teacher_mode = config.event_boundary_teacher_mode
         self.event_max_segments = config.event_max_segments
         self.event_summary_dim = config.event_summary_dim
+        self.event_summary_mode = config.event_summary_mode
         self.event_write_topk = config.event_write_topk
         self.block_size = config.block_size
         self.event_boundary_weight = config.event_boundary_weight
@@ -453,13 +454,17 @@ class RetrievalMemory(nn.Module):
                 raise ValueError("event_max_segments must be >= 0 when use_event_segmented_memory=True")
             if self.event_summary_dim < 0:
                 raise ValueError("event_summary_dim must be >= 0 when use_event_segmented_memory=True")
+            if self.event_summary_mode not in {'basic', 'structured'}:
+                raise ValueError(
+                    "event_summary_mode must be one of {'basic', 'structured'} when use_event_segmented_memory=True"
+                )
             if self.event_write_topk < 0:
                 raise ValueError("event_write_topk must be >= 0 when use_event_segmented_memory=True")
             if self.event_boundary_head_weight < 0.0:
                 raise ValueError("event_boundary_head_weight must be >= 0 when use_event_segmented_memory=True")
             if self.use_chunked_episodic_memory:
                 summary_hidden_dim = self.event_summary_dim if self.event_summary_dim > 0 else config.n_embd
-                summary_feature_dim = config.n_embd * 4 + 1
+                summary_feature_dim = config.n_embd * (8 if self.event_summary_mode == 'structured' else 4) + 1
                 self.event_summary_encoder = nn.Sequential(
                     nn.Linear(summary_feature_dim, summary_hidden_dim, bias=config.bias),
                     nn.GELU(),
@@ -654,10 +659,32 @@ class RetrievalMemory(nn.Module):
         start_summary = segment[0]
         end_summary = segment[-1]
         span_fraction = segment.new_tensor([float(segment.size(0)) / float(max(token_count, 1))])
-        summary_features = torch.cat(
-            (summary, max_summary, start_summary, end_summary, span_fraction),
-            dim=0,
-        )
+        if self.event_summary_mode == 'structured':
+            midpoint_summary = segment[(segment.size(0) - 1) // 2]
+            split = max(1, segment.size(0) // 2)
+            first_half_summary = segment[:split].mean(dim=0)
+            second_half = segment[split:]
+            second_half_summary = second_half.mean(dim=0) if second_half.numel() > 0 else end_summary
+            delta_summary = end_summary - start_summary
+            summary_features = torch.cat(
+                (
+                    summary,
+                    max_summary,
+                    start_summary,
+                    end_summary,
+                    midpoint_summary,
+                    first_half_summary,
+                    second_half_summary,
+                    delta_summary,
+                    span_fraction,
+                ),
+                dim=0,
+            )
+        else:
+            summary_features = torch.cat(
+                (summary, max_summary, start_summary, end_summary, span_fraction),
+                dim=0,
+            )
         return self.event_summary_encoder(summary_features)
 
     def _compute_event_min_segment_tokens(self, token_count, max_segments, boundary_strength):
@@ -1631,6 +1658,7 @@ class GPTConfig:
     event_boundary_teacher_mode: str = 'hidden_state_novelty'
     event_max_segments: int = 0
     event_summary_dim: int = 0
+    event_summary_mode: str = 'basic'
     event_write_topk: int = 0
     event_boundary_weight: float = 0.0
     event_boundary_head_weight: float = 0.0

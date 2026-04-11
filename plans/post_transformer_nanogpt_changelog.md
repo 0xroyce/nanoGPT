@@ -1796,3 +1796,5 @@ Selective-write follow-up:
 - the first `chunked_autonomous_refresh` pilot on seed `1337` reached `2.1684` validation loss at `2000` steps
 - that is cleaner than the failed admission-gating recipe and beats replay's `2.2464`, while showing the intended always-write behavior with `memory/write_fraction=1.0`, but it still falls well short of the current `chunked_autonomous` frontier at `2.0518`
 - current read: similarity-refresh is a healthier modification than novelty-gated admission, but this exact refresh heuristic should still not be promoted to matched-seed replication
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports `event_summary_mode=structured`, which augments chunk summaries with midpoint state, first-half mean, second-half mean, and end-start delta features in addition to the previous pooled summary signals
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_structured` as the first representation-level chunked-memory revision after the failed admission and refresh heuristics
