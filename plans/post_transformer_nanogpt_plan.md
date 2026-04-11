@@ -1771,10 +1771,10 @@ Allowed first targets:
 
 Current next branch:
 
-- start with chunk-level latent-state prediction on top of `chunked_autonomous`
-- have each selected chunk summary predict the next segment summary, rather than predicting detached hard-token losses
-- promote only if it keeps the existing chunked threshold edge while materially improving the fixed-budget `2000` result
-- the first plain cosine next-summary objective collapsed badly, so the next follow-up should use a contrastive target with negatives rather than direct cosine matching
+- retire the chunk-summary future-prediction line after both cosine and contrastive variants collapsed badly
+- move next to a retrieval-centered objective on top of the locked replay winner
+- start with episodic retrieval-usefulness prediction, where the model learns which tokens benefited most from episodic retrieval relative to the local memory path
+- promote only if it improves the `2000` fixed-budget result without degrading the replay winner's stable retrieval regime
 
 Important note:
 

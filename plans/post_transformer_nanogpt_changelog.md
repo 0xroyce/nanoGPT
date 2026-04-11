@@ -1810,3 +1810,8 @@ Selective-write follow-up:
 - current read: plain cosine next-summary prediction should be retired quickly on this substrate
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now also supports `event_future_prediction_mode=contrastive`, which replaces direct cosine matching with a next-segment classification objective over in-sequence negatives
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_predictive_contrastive` as the safer follow-up richer-objective branch, with a smaller weight and explicit temperature
+- the first `chunked_autonomous_predictive_contrastive` pilot on seed `1337` also collapsed badly to `6.6679` validation loss at `2000` steps, despite the auxiliary task being genuinely active rather than trivially solved
+- current read: chunk-summary future-prediction objectives should be retired on this substrate; the problem is the family, not just the exact cosine-vs-contrastive loss
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports episodic retrieval-usefulness prediction on top of the replay winner
+- the new objective trains a small head to predict which tokens benefited most from episodic retrieval relative to the local memory path, using an alignment-margin teacher rather than detached token-loss spikes
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_episodic_utility` as the first retrieval-centered richer-objective branch after retiring the chunk-predictive family
