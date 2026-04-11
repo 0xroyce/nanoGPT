@@ -1841,4 +1841,5 @@ Selective-write follow-up:
 - that beats the replay matched-seed mean `2.2120` by `0.1402`, while all three runs kept `ffn/active_fraction=0.6250`, `token_router/selected_fraction=0.2500`, and healthy retrieval entropy
 - matched-seed `5000` runs also held: `1.1917`, `1.1980`, `1.2034`, for a `1.1977` mean
 - that beats the replay `5000` mean `1.2296` by `0.0319`, while all three runs still held `ffn/active_fraction=0.6250`, `token_router/selected_fraction=0.2500`, and healthy retrieval entropy around `0.183-0.204`
+- dual-score analysis also held cleanly: residual-routed reached thresholds `1.90`, `1.75`, and `1.65` about `200` steps earlier than replay while still winning the `5000` endpoint
 - current read: this is the strongest sparse-compute result so far in the harness and the first one that clearly improves both short-run and endpoint quality while reducing effective FFN compute

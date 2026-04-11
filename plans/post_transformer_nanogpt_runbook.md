@@ -1845,3 +1845,16 @@ Next step:
 - mean gain: `0.0319`
 - every seed still kept `ffn/active_fraction=0.6250`
 - retrieval remained healthy with `memory/retrieval_entropy` around `0.183-0.204`
+
+Dual-score read:
+
+- endpoint @ `5000`: residual-routed wins `1.1977` vs replay `1.2296`
+- threshold `<= 1.90`: residual-routed reaches it at `1800` vs replay `2000`
+- threshold `<= 1.75`: residual-routed reaches it at `2200` vs replay `2400`
+- threshold `<= 1.65`: residual-routed reaches it at `2400` vs replay `2600`
+
+Next sweep recommendation:
+
+```bash
+python train.py --dataset=openwebtext --device=cuda --compile=False --seed=1337 --batch_size=8 --block_size=256 --gradient_accumulation_steps=4 --n_layer=6 --n_head=6 --n_embd=384 --max_iters=2000 --lr_decay_iters=2000 --warmup_iters=100 --eval_interval=200 --eval_iters=50 --log_interval=16 --wandb_log=False --batching_mode=stream --stream_eval_warmup_iters=64 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.0 --use_multiscale_optim=True --retrieval_lr_scale=15.0 --use_episodic_memory=True --episodic_memory_slots=64 --episodic_memory_topk=2 --episodic_memory_weight=0.0625 --use_memory_replay_consolidation=True --memory_replay_buffer_size=128 --memory_replay_every=32 --memory_replay_batch_size=4 --memory_replay_weight=0.01 --ffn_mode=token_residual_routed --ffn_token_fraction=0.125 --ffn_base_fraction=0.5 --ffn_routed_fraction=0.5 --ffn_router_uses_memory=True --ffn_router_memory_scale=1.0 --log_experiment_metrics=True --out_dir=out-owt-memory-s32-k4-multiscale-x15-episodic-w0p0625-replay-residualrouted-f0p125-b0p5-r0p5-memroute-w0p01-every32-bs4-seed1337-2000 | tee owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p125_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1337_2000.log
+```

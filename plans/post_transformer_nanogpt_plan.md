@@ -1791,6 +1791,7 @@ Current next branch:
 - that beats the replay matched-seed mean `2.2120` by `0.1402`, while every seed kept `ffn/active_fraction=0.6250` and healthy retrieval entropy in roughly the `0.151-0.166` range
 - matched-seed `5000` runs also held: `1.1917`, `1.1980`, `1.2034` for a `1.1977` mean
 - that beats the replay `5000` mean `1.2296` by `0.0319`, while all three runs still held `ffn/active_fraction=0.6250` and healthy retrieval entropy in roughly the `0.183-0.204` range
+- dual-score analysis also held cleanly: residual-routed reached `1.90`, `1.75`, and `1.65` about `200` steps earlier than replay while still winning the `5000` endpoint
 - current read: this is the first branch in the harness that looks like a genuine step toward the original goal, because it improves both short-run and endpoint quality while reducing effective FFN compute
 
 Important note:
@@ -1800,22 +1801,22 @@ Important note:
 
 ### Current Execution Order
 
-1. keep replay frozen as the endpoint reference branch at `5000` steps
+1. keep replay frozen as the dense reference branch at `5000` steps, but treat residual-routed replay as the new primary promotion branch
 2. score future candidates with a dual benchmark:
    fixed-budget endpoint loss plus explicit time-to-threshold analysis
-3. treat chunked episodic memory as the main architecture family because it is the strongest current memory-hierarchy sample-efficiency signal
-4. do not spend routine budget on standalone learned-boundary sweeps, replay-consolidation sweeps, or replay-plus-chunked schedule tweaks
-5. the next serious implementation should improve the chunked memory substrate itself rather than add another light regularizer on top of replay
+3. treat residual-routed replay as the main architecture family because it is now the strongest validated branch overall
+4. do not spend routine budget on standalone learned-boundary sweeps, replay-consolidation sweeps, replay-side utility objectives, or weak chunked follow-ups
+5. the next serious implementation should be a narrow sweep around the residual-routed compute split rather than a new memory-side micro-variant
 6. only promote a new branch to matched-seed `5000` runs if it shows either:
    a clear `2000`-step mean win against replay
    or a meaningful threshold win with an acceptable endpoint tradeoff
-7. keep selective writes, replay, and richer objectives available as supporting ingredients, but only after the chunked-memory substrate gets stronger
+7. keep selective writes, chunked memory, and richer objectives available as supporting ingredients, but the new baseline to beat is residual-routed replay rather than dense replay alone
 
 ### Concrete Next Three Experiments
 
-1. formalize the existing chunked-memory win as a dual-score result by running threshold analysis against replay on the matched-seed `5000` curves
-2. build the next chunked-memory revision as the primary branch, with the goal of preserving the early `chunked_autonomous` advantage deeper into training rather than revisiting standalone boundary-policy tuning
-3. only if that revised chunked branch clears the short-run gate, run a matched-seed `5000` comparison against replay; otherwise retire it quickly and move to the next memory-substrate idea
+1. run one careful residual-routed sweep around compute split and routing intensity, starting with a slightly more aggressive variant such as `ffn_token_fraction=0.125`
+2. compare every residual-routed follow-up against the new residual-routed baseline on both endpoint and threshold metrics, not just against dense replay
+3. only after the residual-routed neighborhood is mapped should we revisit chunked-memory integration or more ambitious sparse-branch compositions
 
 ### Success Criteria for Phase 7
 
