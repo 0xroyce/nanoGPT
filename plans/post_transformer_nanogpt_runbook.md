@@ -106,6 +106,7 @@ Execution policy from here:
 3. use [analyze_threshold_benchmark.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/analyze_threshold_benchmark.py) to score future branches on explicit threshold crossings before spending more long-run budget
 4. do not restart standalone learned-boundary sweeps, replay-consolidation sweeps, or replay-plus-chunked schedule sweeps unless a new architectural ingredient changes the memory substrate itself
 5. the next implementation branch should therefore be a revised chunked-memory architecture aimed at keeping the early advantage deeper into training
+6. `chunked_autonomous_novelty` is now the first such revision: it keeps learned chunk boundaries but gates chunk admission using both local chunk utility and novelty against the existing episodic bank
 
 Prototype B heuristic status update:
 

@@ -1785,3 +1785,6 @@ Selective-write follow-up:
   at threshold `1.6500`, both branches reach the mean crossing at step `2600`
   at the fixed `5000`-step endpoint, replay still wins by about `0.0013`
 - current read: chunked memory is the clearest efficiency-positive substrate in the memory-hierarchy line, but it still needs a stronger late-training story before it should replace replay as the promoted benchmark branch
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now lets chunked episodic memory use novelty-gated admission instead of forcing every selected chunk into the episodic bank
+- the segmented write path now carries local chunk utility scores forward and combines them with novelty against existing episodic slots, so chunk writes can be skipped when they are locally useful but globally redundant
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_novelty` as the first revised chunked-memory benchmark aimed at preserving the early threshold win deeper into training

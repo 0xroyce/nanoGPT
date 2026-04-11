@@ -434,10 +434,6 @@ class RetrievalMemory(nn.Module):
         if self.use_event_segmented_memory:
             if not self.use_episodic_memory:
                 raise ValueError("use_event_segmented_memory=True requires use_episodic_memory=True")
-            if self.episodic_write_gate_mode != 'none':
-                raise ValueError(
-                    "episodic_write_gate_mode != 'none' is currently only supported on non-segmented episodic memory"
-                )
             if self.event_boundary_mode not in {'hidden_state_novelty', 'uniform', 'learned_boundary_head'}:
                 raise ValueError(
                     "event_boundary_mode must be one of {'hidden_state_novelty', 'uniform', 'learned_boundary_head'} "
@@ -604,23 +600,25 @@ class RetrievalMemory(nn.Module):
             'memory/write_teacher_signal_mean': teacher_signal.mean().detach(),
         }
 
-    def _compute_episodic_write_novelty(self, summaries):
-        valid_mask = self.episodic_memory_valid
+    def _compute_episodic_write_novelty(self, summaries, batch_indices=None):
+        if batch_indices is None:
+            valid_mask = self.episodic_memory_valid
+            memory = self.episodic_memory
+        else:
+            valid_mask = self.episodic_memory_valid.index_select(0, batch_indices)
+            memory = self.episodic_memory.index_select(0, batch_indices)
+
         has_valid = valid_mask.any(dim=1)
         if not bool(has_valid.any().item()):
             return torch.ones(summaries.size(0), device=summaries.device, dtype=summaries.dtype)
 
         normalized_summaries = F.normalize(summaries.detach(), dim=-1, eps=1e-8)
-        normalized_memory = F.normalize(self.episodic_memory.detach(), dim=-1, eps=1e-8)
+        normalized_memory = F.normalize(memory.detach(), dim=-1, eps=1e-8)
         similarity = torch.einsum('bd,bsd->bs', normalized_summaries, normalized_memory)
         similarity = similarity.masked_fill(~valid_mask, -1.0)
         max_similarity = similarity.max(dim=1).values
         novelty = 1.0 - max_similarity
-        novelty = torch.where(
-            has_valid,
-            novelty,
-            torch.ones_like(novelty),
-        )
+        novelty = torch.where(has_valid, novelty, torch.ones_like(novelty))
         return novelty
 
     def _project_event_summary(self, segment, token_count):
@@ -738,7 +736,7 @@ class RetrievalMemory(nn.Module):
         if not self.use_event_segmented_memory:
             self.last_event_metrics = self._get_default_event_metrics(x.device)
             self.last_event_aux_losses = {}
-            return None, None, None
+            return None, None, None, None
 
         batch_size, token_count, hidden_dim = x.shape
         max_segments = self.event_max_segments if self.event_max_segments > 0 else self.episodic_memory_slots
@@ -750,6 +748,7 @@ class RetrievalMemory(nn.Module):
         event_summaries = torch.zeros(batch_size, write_limit, hidden_dim, device=x.device, dtype=x.dtype)
         event_valid = torch.zeros(batch_size, write_limit, dtype=torch.bool, device=x.device)
         event_spans = torch.zeros(batch_size, write_limit, dtype=torch.long, device=x.device)
+        event_utilities = torch.zeros(batch_size, write_limit, device=x.device, dtype=x.dtype)
         segment_counts = []
         selected_segment_counts = []
         boundary_fractions = []
@@ -903,12 +902,15 @@ class RetrievalMemory(nn.Module):
                     device=x.device,
                     dtype=torch.long,
                 )
+                selected_utility_values = utility_tensor.index_select(0, selected_indices)
             else:
                 selected_segments = segment_tensor[:0]
                 selected_span_values = torch.zeros(0, device=x.device, dtype=torch.long)
+                selected_utility_values = torch.zeros(0, device=x.device, dtype=x.dtype)
             event_summaries[batch_idx, :selected_count] = selected_segments
             event_valid[batch_idx, :selected_count] = True
             event_spans[batch_idx, :selected_count] = selected_span_values
+            event_utilities[batch_idx, :selected_count] = selected_utility_values
             selected_segment_counts.append(float(selected_count))
             if selected_count > 0:
                 selected_mean_spans.append(float(selected_span_values.float().mean().item()))
@@ -946,7 +948,7 @@ class RetrievalMemory(nn.Module):
                 dtype=x.dtype,
             ),
         }
-        return event_summaries, event_valid, event_spans
+        return event_summaries, event_valid, event_spans, event_utilities
 
     @torch.no_grad()
     def _update_persistent_memory(self, local_slots):
@@ -1004,7 +1006,7 @@ class RetrievalMemory(nn.Module):
         self.recurrent_state_valid.fill_(True)
 
     @torch.no_grad()
-    def _update_episodic_memory(self, x, local_slots, event_summaries=None, event_valid=None, event_spans=None):
+    def _update_episodic_memory(self, x, local_slots, event_summaries=None, event_valid=None, event_spans=None, event_utilities=None):
         if not self.use_episodic_memory or not (self.training or self.memory_update_during_eval):
             return
 
@@ -1015,14 +1017,15 @@ class RetrievalMemory(nn.Module):
             summaries = event_summaries
             summary_valid = event_valid
             summary_spans = event_spans
-            all_gate_probs = []
-            all_write_masks = []
-            all_refresh_masks = []
-            all_teacher_signals = []
-            if summaries is None or summary_valid is None or summary_spans is None:
-                summaries, summary_valid, summary_spans = self._build_event_summaries(x.detach())
-            if summaries is None or summary_valid is None or summary_spans is None:
+            summary_utilities = event_utilities
+            if summaries is None or summary_valid is None or summary_spans is None or summary_utilities is None:
+                summaries, summary_valid, summary_spans, summary_utilities = self._build_event_summaries(x.detach())
+            if summaries is None or summary_valid is None or summary_spans is None or summary_utilities is None:
                 return
+            flat_summaries = []
+            flat_spans = []
+            flat_batch_indices = []
+            flat_local_utilities = []
             for batch_idx in range(batch_size):
                 valid_count = int(summary_valid[batch_idx].sum().item())
                 if valid_count <= 0:
@@ -1030,29 +1033,58 @@ class RetrievalMemory(nn.Module):
                 write_count = min(valid_count, self.episodic_memory_slots)
                 write_values = summaries[batch_idx, :write_count]
                 write_spans = summary_spans[batch_idx, :write_count]
-                start = int(self.episodic_memory_ptr[batch_idx].item())
-                existing_valid = self.episodic_memory_valid[batch_idx]
-                target_indices = (
-                    torch.arange(write_count, device=write_values.device) + start
-                ) % self.episodic_memory_slots
-                refresh_flags = existing_valid.index_select(0, target_indices)
-                self.episodic_memory[batch_idx].index_copy_(0, target_indices, write_values)
-                self.episodic_memory_valid[batch_idx].index_fill_(0, target_indices, True)
-                self.episodic_memory_span[batch_idx].index_copy_(0, target_indices, write_spans)
-                self.episodic_memory_ptr[batch_idx] = (start + write_count) % self.episodic_memory_slots
-                all_gate_probs.append(torch.ones(write_count, device=write_values.device, dtype=write_values.dtype))
-                all_write_masks.append(torch.ones(write_count, device=write_values.device, dtype=torch.bool))
-                all_refresh_masks.append(refresh_flags)
-                all_teacher_signals.append(torch.zeros(write_count, device=write_values.device, dtype=write_values.dtype))
-            if all_gate_probs:
-                self._record_write_metrics(
-                    torch.cat(all_gate_probs, dim=0),
-                    torch.cat(all_write_masks, dim=0),
-                    torch.cat(all_refresh_masks, dim=0),
-                    torch.cat(all_teacher_signals, dim=0),
+                write_utilities = summary_utilities[batch_idx, :write_count]
+                flat_summaries.append(write_values)
+                flat_spans.append(write_spans)
+                flat_local_utilities.append(write_utilities)
+                flat_batch_indices.append(
+                    torch.full((write_count,), batch_idx, device=write_values.device, dtype=torch.long)
                 )
-            else:
+            if not flat_summaries:
                 self.last_write_metrics = self._get_default_write_metrics(local_slots.device)
+                return
+
+            flat_summaries = torch.cat(flat_summaries, dim=0)
+            flat_spans = torch.cat(flat_spans, dim=0)
+            flat_local_utilities = torch.cat(flat_local_utilities, dim=0)
+            flat_batch_indices = torch.cat(flat_batch_indices, dim=0)
+
+            if self.episodic_write_gate_mode == 'novelty':
+                novelty_signal = self._compute_episodic_write_novelty(flat_summaries, batch_indices=flat_batch_indices)
+                normalized_novelty = novelty_signal.clamp(0.0, 1.0)
+                utility_centered = flat_local_utilities - flat_local_utilities.mean()
+                utility_scale = flat_local_utilities.std(unbiased=False).clamp_min(1e-6)
+                normalized_utility = torch.sigmoid(utility_centered / utility_scale)
+                teacher_signal = 0.5 * (normalized_utility + normalized_novelty)
+                gate_probs = teacher_signal
+                gated_write_count = max(
+                    1,
+                    min(flat_summaries.size(0), int(math.ceil(flat_summaries.size(0) * self.episodic_write_fraction))),
+                )
+                selected_indices = torch.topk(teacher_signal, k=gated_write_count, dim=0).indices
+                write_mask = torch.zeros(flat_summaries.size(0), device=flat_summaries.device, dtype=torch.bool)
+                write_mask[selected_indices] = True
+            else:
+                gate_probs = torch.ones(flat_summaries.size(0), device=flat_summaries.device, dtype=flat_summaries.dtype)
+                teacher_signal = flat_local_utilities
+                write_mask = torch.ones(flat_summaries.size(0), device=flat_summaries.device, dtype=torch.bool)
+
+            refresh_flags = []
+            for candidate_idx in torch.nonzero(write_mask, as_tuple=False).squeeze(-1).tolist():
+                batch_idx = int(flat_batch_indices[candidate_idx].item())
+                start = int(self.episodic_memory_ptr[batch_idx].item())
+                refresh_flags.append(self.episodic_memory_valid[batch_idx, start])
+                self.episodic_memory[batch_idx, start] = flat_summaries[candidate_idx]
+                self.episodic_memory_valid[batch_idx, start] = True
+                self.episodic_memory_span[batch_idx, start] = flat_spans[candidate_idx]
+                self.episodic_memory_ptr[batch_idx] = (start + 1) % self.episodic_memory_slots
+
+            refresh_mask = (
+                torch.stack(refresh_flags, dim=0)
+                if refresh_flags
+                else torch.zeros(0, device=flat_summaries.device, dtype=torch.bool)
+            )
+            self._record_write_metrics(gate_probs, write_mask, refresh_mask, teacher_signal)
             return
 
         summaries = local_slots.detach().mean(dim=1)
@@ -1193,8 +1225,9 @@ class RetrievalMemory(nn.Module):
         event_summaries = None
         event_valid = None
         event_spans = None
+        event_utilities = None
         if self.use_event_segmented_memory and (return_metrics or update_memory):
-            event_summaries, event_valid, event_spans = self._build_event_summaries(x.detach())
+            event_summaries, event_valid, event_spans, event_utilities = self._build_event_summaries(x.detach())
         else:
             self.last_event_metrics = self._get_default_event_metrics(x.device)
             self.last_event_aux_losses = {}
@@ -1285,6 +1318,7 @@ class RetrievalMemory(nn.Module):
                 event_summaries=event_summaries,
                 event_valid=event_valid,
                 event_spans=event_spans,
+                event_utilities=event_utilities,
             )
 
         if not return_metrics:
