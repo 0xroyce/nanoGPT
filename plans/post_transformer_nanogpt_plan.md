@@ -1775,6 +1775,7 @@ Current next branch:
 - move next to a retrieval-centered objective on top of the locked replay winner
 - start with episodic retrieval-usefulness prediction, where the model learns which tokens benefited most from episodic retrieval relative to the local memory path
 - promote only if it improves the `2000` fixed-budget result without degrading the replay winner's stable retrieval regime
+- the first top-fraction episodic-utility teacher was stable but too weak, so the immediate follow-up should sharpen the teacher to only positive-margin wins instead of supervising near-ties
 
 Important note:
 

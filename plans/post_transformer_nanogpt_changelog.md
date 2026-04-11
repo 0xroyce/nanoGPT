@@ -1815,3 +1815,7 @@ Selective-write follow-up:
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports episodic retrieval-usefulness prediction on top of the replay winner
 - the new objective trains a small head to predict which tokens benefited most from episodic retrieval relative to the local memory path, using an alignment-margin teacher rather than detached token-loss spikes
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_episodic_utility` as the first retrieval-centered richer-objective branch after retiring the chunk-predictive family
+- the first `replay_episodic_utility` pilot on seed `1337` was stable but slightly worse than replay at `2000` steps: `2.2591` vs `2.2464`
+- the utility mechanism was live, but the teacher margin was tiny (`memory/episodic_utility_margin≈0.0048`), which suggests the top-fraction teacher was supervising too many near-ties to add real value
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports `episodic_utility_teacher_mode=positive_margin`, which only supervises tokens where episodic retrieval beats the local path by a meaningful positive threshold
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_episodic_utility_margin` as the sharper replay-centered follow-up benchmark
