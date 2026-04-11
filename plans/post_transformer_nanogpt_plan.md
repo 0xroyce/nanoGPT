@@ -1782,6 +1782,9 @@ Current next branch:
 - the first `chunked_autonomous_recurrent` pilot on seed `1337` reached `2.2440` at `2000` steps
 - that is effectively a tie with replay `2.2464`, but it badly trails both `chunked_autonomous` `2.0518` and the standalone recurrent branch `2.1368`
 - current read: naive chunked-plus-recurrent composition blunts both parent advantages instead of combining them, so this exact hybrid should not be promoted
+- the next pivot should leave the current memory-objective neighborhood and return to sparse compute, but without repeating the subtractive token-routing mistake
+- the right next architectural probe is an additive routed FFN: keep a smaller always-on FFN path for every token, then let memory-conditioned routing add a residual FFN sub-branch only for the top-scored tokens
+- this is the cleanest implemented test of context-dependent sub-block activation inside the FFN, and it can reduce effective FFN compute without deleting the baseline path that carried the replay winner
 
 Important note:
 

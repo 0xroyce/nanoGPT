@@ -1831,3 +1831,7 @@ Selective-write follow-up:
 - that is only a near-tie with replay `2.2464`, while trailing both standalone parents badly: `chunked_autonomous` `2.0518` and recurrent-state `2.1368`
 - the mechanism is live on both sides at once, with chunked selection around `1.35` summaries per sequence and recurrent gate mean around `0.47`, but the composition still does not preserve either branch's short-run edge
 - current read: naive chunked-plus-recurrent composition should be retired quickly as another trusted negative hybrid
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports `ffn_mode='token_residual_routed'`, an additive sparse FFN variant with a smaller always-on base path plus a routed residual sub-branch for only the top-scored tokens
+- the new FFN reports both routed-token activity and effective compute fraction, so we can compare quality against actual FFN sparsity instead of only token counts
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_residual_routed` as the first sparse-compute pivot after retiring the recent memory-objective and chunk-hybrid lines
+- current read: this is the cleanest next test of context-dependent sub-block activation because it preserves a baseline FFN path while still targeting materially lower effective FFN compute than the dense replay winner

@@ -324,6 +324,100 @@ class TokenRoutedFFN(nn.Module):
         return output, metrics
 
 
+class TokenResidualRoutedFFN(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        if config.ffn_token_fraction <= 0.0 or config.ffn_token_fraction > 1.0:
+            raise ValueError("ffn_token_fraction must be in (0, 1] when ffn_mode='token_residual_routed'")
+        if config.ffn_base_fraction <= 0.0 or config.ffn_base_fraction > 1.0:
+            raise ValueError("ffn_base_fraction must be in (0, 1] when ffn_mode='token_residual_routed'")
+        if config.ffn_routed_fraction <= 0.0 or config.ffn_routed_fraction > 1.0:
+            raise ValueError("ffn_routed_fraction must be in (0, 1] when ffn_mode='token_residual_routed'")
+
+        self.token_fraction = config.ffn_token_fraction
+        self.router_uses_memory = config.ffn_router_uses_memory
+        self.router_memory_scale = config.ffn_router_memory_scale
+        self.base_fraction = config.ffn_base_fraction
+        self.routed_fraction = config.ffn_routed_fraction
+        self.base_hidden_dim = max(1, int(round(4 * config.n_embd * self.base_fraction)))
+        self.routed_hidden_dim = max(1, int(round(4 * config.n_embd * self.routed_fraction)))
+
+        self.router = nn.Linear(config.n_embd, 1, bias=config.bias)
+        self.memory_router_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias) if self.router_uses_memory else None
+
+        self.base_fc = nn.Linear(config.n_embd, self.base_hidden_dim, bias=config.bias)
+        self.base_proj = nn.Linear(self.base_hidden_dim, config.n_embd, bias=config.bias)
+        self.base_dropout = nn.Dropout(config.dropout)
+
+        self.routed_fc = nn.Linear(config.n_embd, self.routed_hidden_dim, bias=config.bias)
+        self.routed_proj = nn.Linear(self.routed_hidden_dim, config.n_embd, bias=config.bias)
+        self.routed_dropout = nn.Dropout(config.dropout)
+
+        self.gelu = nn.GELU()
+
+    def _base_mlp(self, x):
+        x = self.base_fc(x)
+        x = self.gelu(x)
+        x = self.base_proj(x)
+        x = self.base_dropout(x)
+        return x
+
+    def _routed_mlp(self, x):
+        x = self.routed_fc(x)
+        x = self.gelu(x)
+        x = self.routed_proj(x)
+        x = self.routed_dropout(x)
+        return x
+
+    def forward(self, x, return_metrics=False, router_hint=None):
+        batch_size, seq_len, hidden_dim = x.shape
+        base_output = self._base_mlp(x)
+
+        router_input = x
+        router_hint_norm = torch.tensor(0.0, device=x.device)
+        if self.router_uses_memory and router_hint is not None:
+            router_hint_norm = router_hint.norm(dim=-1).mean().detach()
+            router_input = router_input + self.memory_router_proj(router_hint) * self.router_memory_scale
+
+        router_scores = self.router(router_input).squeeze(-1)
+        active_tokens = max(1, min(seq_len, int(math.ceil(seq_len * self.token_fraction))))
+        topk_indices = torch.topk(router_scores, k=active_tokens, dim=-1).indices
+
+        flat_x = x.reshape(batch_size * seq_len, hidden_dim)
+        flat_output = base_output.reshape(batch_size * seq_len, hidden_dim)
+        batch_offsets = torch.arange(batch_size, device=x.device).unsqueeze(1) * seq_len
+        flat_token_indices = (topk_indices + batch_offsets).reshape(-1)
+        selected_x = flat_x.index_select(0, flat_token_indices)
+        selected_out = self._routed_mlp(selected_x)
+        selected_scores = router_scores.reshape(batch_size * seq_len).index_select(0, flat_token_indices)
+        selected_gates = torch.sigmoid(selected_scores).unsqueeze(-1).to(dtype=selected_out.dtype)
+        selected_out = selected_out * selected_gates
+        flat_output.index_add_(0, flat_token_indices, selected_out)
+        output = flat_output.view(batch_size, seq_len, hidden_dim)
+
+        if not return_metrics:
+            return output
+
+        active_fraction = float(active_tokens) / float(seq_len)
+        effective_compute_fraction = self.base_fraction + (self.routed_fraction * active_fraction)
+        score_mean = router_scores.mean().detach()
+        score_std = router_scores.std(unbiased=False).detach()
+        metrics = {
+            'ffn/active_fraction': torch.tensor(effective_compute_fraction, device=x.device),
+            'token_router/score_mean': score_mean,
+            'token_router/score_std': score_std,
+            'token_router/gate_mean': selected_gates.mean().detach(),
+            'token_router/selected_fraction': torch.tensor(active_fraction, device=x.device),
+            'token_router/effective_compute_fraction': torch.tensor(effective_compute_fraction, device=x.device),
+            'token_router/base_fraction': torch.tensor(self.base_fraction, device=x.device),
+            'token_router/routed_fraction': torch.tensor(self.routed_fraction, device=x.device),
+            'token_router/uses_memory': torch.tensor(1.0 if self.router_uses_memory else 0.0, device=x.device),
+            'token_router/hint_norm': router_hint_norm,
+        }
+        return output, metrics
+
+
 class RetrievalMemory(nn.Module):
 
     def __init__(self, config):
@@ -1800,6 +1894,8 @@ def build_ffn(config):
         return MoEFFN(config)
     if config.ffn_mode == 'token_routed':
         return TokenRoutedFFN(config)
+    if config.ffn_mode == 'token_residual_routed':
+        return TokenResidualRoutedFFN(config)
     raise NotImplementedError(f"ffn_mode={config.ffn_mode!r} is not implemented yet")
 
 class Block(nn.Module):
@@ -1909,6 +2005,8 @@ class GPTConfig:
     ffn_token_fraction: float = 1.0
     ffn_router_uses_memory: bool = False
     ffn_router_memory_scale: float = 1.0
+    ffn_base_fraction: float = 0.5
+    ffn_routed_fraction: float = 0.5
     use_aux_losses: bool = False
     aux_loss_weights: str = ''
     use_hard_token_objective: bool = False
