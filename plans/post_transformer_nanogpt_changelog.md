@@ -1823,3 +1823,7 @@ Selective-write follow-up:
 - the mechanism remained stable, but the teacher was still not actually selective enough: `memory/episodic_utility_teacher_fraction≈0.316`, `memory/episodic_utility_margin≈0.0076`, `memory/episodic_utility_threshold≈0.0432`
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports an absolute utility floor plus a hard cap on teacher fraction for episodic-utility supervision
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_episodic_utility_floor` as the stricter replay-side follow-up, using `margin_strength=0.5`, `margin_floor=0.05`, and `max_teacher_fraction=0.125`
+- the first `replay_episodic_utility_floor` pilot on seed `1337` still trailed replay at `2000` steps: `2.2550` vs `2.2464`
+- the stricter teacher finally behaved as intended, but the underlying episodic-vs-local advantage remained too weak to supervise profitably, so the replay-side utility line should be retired
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_recurrent` as the next non-objective pivot: combine chunked episodic memory with the already validated recurrent scratchpad
+- current read: this is the most plausible remaining architectural composition because chunked memory and recurrent state are the two clearest short-run sample-efficiency signals on this branch

@@ -1781,3 +1781,10 @@ grep "step 2000" owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_epiuti
 ./scripts/run_learned_boundary_head_benchmark.sh replay_episodic_utility_floor 1337 2000
 grep "step 2000" owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_epiutility_floor_m0p5_f0p05_cap0p125_w0p01_every32_bs4_seed1337_2000.log
 ```
+
+### Chunked + recurrent benchmark
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous_recurrent 1337 2000
+grep "step 2000" owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_chunked_learned_autonomous_recurrent_d128_rw0p25_w8_seed1337_2000.log
+```

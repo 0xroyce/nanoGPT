@@ -1777,6 +1777,8 @@ Current next branch:
 - promote only if it improves the `2000` fixed-budget result without degrading the replay winner's stable retrieval regime
 - the first top-fraction episodic-utility teacher was stable but too weak, so the immediate follow-up should sharpen the teacher to only positive-margin wins instead of supervising near-ties
 - if the plain positive-margin teacher still labels too many weak wins, add both an absolute margin floor and a hard cap on teacher fraction before retiring the retrieval-usefulness line
+- after retiring the replay-side utility line, the best next non-objective branch is to combine the two strongest short-run architectural signals:
+  chunked episodic memory for compressed recall plus a compact recurrent scratchpad for active local context
 
 Important note:
 
