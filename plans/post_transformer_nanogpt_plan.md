@@ -1344,6 +1344,9 @@ Updated conclusion:
   at threshold `1.7500`, `chunked_autonomous` reaches the mean crossing at step `2200` while replay reaches it at step `2400`
   at threshold `1.6500`, both branches reach the mean crossing at step `2600`
   at the fixed `5000`-step endpoint, replay still wins by about `0.0013`
+- the first novelty-gated chunked follow-up did not preserve the frontier signal:
+  on seed `1337` at `2000` steps, `chunked_autonomous_novelty` reached `2.1889`
+  that beats replay `2.2464` but badly trails the current `chunked_autonomous` reference at `2.0518`
 
 Updated recommendation:
 

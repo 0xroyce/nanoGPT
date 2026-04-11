@@ -107,6 +107,7 @@ Execution policy from here:
 4. do not restart standalone learned-boundary sweeps, replay-consolidation sweeps, or replay-plus-chunked schedule sweeps unless a new architectural ingredient changes the memory substrate itself
 5. the next implementation branch should therefore be a revised chunked-memory architecture aimed at keeping the early advantage deeper into training
 6. `chunked_autonomous_novelty` is now the first such revision: it keeps learned chunk boundaries but gates chunk admission using both local chunk utility and novelty against the existing episodic bank
+7. the first seed-`1337` pilot for `chunked_autonomous_novelty` reached `2.1889` at `2000` steps, so the gate is live but this exact recipe is not competitive with the current chunked frontier
 
 Prototype B heuristic status update:
 

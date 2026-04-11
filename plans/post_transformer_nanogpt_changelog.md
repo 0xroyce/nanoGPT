@@ -1788,3 +1788,6 @@ Selective-write follow-up:
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now lets chunked episodic memory use novelty-gated admission instead of forcing every selected chunk into the episodic bank
 - the segmented write path now carries local chunk utility scores forward and combines them with novelty against existing episodic slots, so chunk writes can be skipped when they are locally useful but globally redundant
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_novelty` as the first revised chunked-memory benchmark aimed at preserving the early threshold win deeper into training
+- the first `chunked_autonomous_novelty` pilot on seed `1337` reached `2.1889` validation loss at `2000` steps
+- that still beats replay's `2.2464`, and the gate is clearly active with `memory/write_fraction=0.8182` and `memory/write_gate_mean≈0.30`, but it falls far short of the current `chunked_autonomous` frontier at `2.0518`
+- current read: this exact novelty-gated chunked recipe should not be promoted to matched-seed replication; the mechanism is live, but it is too destructive to the short-run quality signal
