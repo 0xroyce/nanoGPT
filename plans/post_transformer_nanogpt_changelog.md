@@ -1844,3 +1844,6 @@ Selective-write follow-up:
 - dual-score analysis also held cleanly: residual-routed reached thresholds `1.90`, `1.75`, and `1.65` about `200` steps earlier than replay while still winning the `5000` endpoint
 - current read: this is the strongest sparse-compute result so far in the harness and the first one that clearly improves both short-run and endpoint quality while reducing effective FFN compute
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now also supports `replay_residual_routed_lean` as the first follow-up sweep around the winning residual-routed branch, lowering `ffn_token_fraction` from `0.25` to `0.125` while keeping the rest fixed
+- lean residual-routed replication held decisively at `2000` steps: `2.0686`, `2.0351`, `1.9840`, for a `2.0292` mean
+- that beats the original residual-routed mean `2.0718` by `0.0426` and the dense replay mean `2.2120` by `0.1828`, while all three runs held `ffn/active_fraction=0.5625`
+- current read: the lean residual-routed setting is now the strongest branch in the harness and should move immediately to matched-seed `5000` evaluation

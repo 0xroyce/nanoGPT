@@ -1792,7 +1792,10 @@ Current next branch:
 - matched-seed `5000` runs also held: `1.1917`, `1.1980`, `1.2034` for a `1.1977` mean
 - that beats the replay `5000` mean `1.2296` by `0.0319`, while all three runs still held `ffn/active_fraction=0.6250` and healthy retrieval entropy in roughly the `0.183-0.204` range
 - dual-score analysis also held cleanly: residual-routed reached `1.90`, `1.75`, and `1.65` about `200` steps earlier than replay while still winning the `5000` endpoint
-- current read: this is the first branch in the harness that looks like a genuine step toward the original goal, because it improves both short-run and endpoint quality while reducing effective FFN compute
+- the lean follow-up also replicated at `2000` steps: `2.0686`, `2.0351`, `1.9840` for a `2.0292` mean
+- that beats the original residual-routed mean `2.0718` by `0.0426` and the replay mean `2.2120` by `0.1828`, while reducing effective FFN compute further to `0.5625`
+- current read: the lower-compute residual-routed setting is now the new primary branch and should be promoted immediately to matched-seed `5000` runs
+- current read: this remains the clearest step toward the original goal so far, because the branch keeps improving quality as we push FFN compute lower instead of trading one against the other
 
 Important note:
 
@@ -1801,10 +1804,10 @@ Important note:
 
 ### Current Execution Order
 
-1. keep replay frozen as the dense reference branch at `5000` steps, but treat residual-routed replay as the new primary promotion branch
+1. keep replay frozen as the dense reference branch at `5000` steps, but treat lean residual-routed replay as the new primary promotion branch
 2. score future candidates with a dual benchmark:
    fixed-budget endpoint loss plus explicit time-to-threshold analysis
-3. treat residual-routed replay as the main architecture family because it is now the strongest validated branch overall
+3. treat residual-routed replay as the main architecture family because it is now the strongest validated branch overall, with the lean `f0p125` setting as the current leader
 4. do not spend routine budget on standalone learned-boundary sweeps, replay-consolidation sweeps, replay-side utility objectives, or weak chunked follow-ups
 5. the next serious implementation should be a narrow sweep around the residual-routed compute split rather than a new memory-side micro-variant
 6. only promote a new branch to matched-seed `5000` runs if it shows either:
@@ -1814,9 +1817,9 @@ Important note:
 
 ### Concrete Next Three Experiments
 
-1. run one careful residual-routed sweep around compute split and routing intensity, starting with a slightly more aggressive variant such as `ffn_token_fraction=0.125`
-2. compare every residual-routed follow-up against the new residual-routed baseline on both endpoint and threshold metrics, not just against dense replay
-3. only after the residual-routed neighborhood is mapped should we revisit chunked-memory integration or more ambitious sparse-branch compositions
+1. run matched-seed `5000` evaluation for the lean residual-routed branch
+2. compare the lean branch against the original residual-routed branch on both endpoint and threshold metrics, not just against dense replay
+3. only after the lean residual-routed neighborhood is mapped should we revisit chunked-memory integration or more ambitious sparse-branch compositions
 
 ### Success Criteria for Phase 7
 

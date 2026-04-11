@@ -1859,3 +1859,22 @@ Next sweep recommendation:
 ./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed_lean 1337 2000
 grep "step 2000" owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p125_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1337_2000.log
 ```
+
+Lean replication read:
+
+- lean residual-routed val losses: `2.0686`, `2.0351`, `1.9840`
+- lean residual-routed mean: `2.0292`
+- original residual-routed mean: `2.0718`
+- dense replay mean: `2.2120`
+- mean gain vs original residual-routed: `0.0426`
+- mean gain vs dense replay: `0.1828`
+- every seed held `ffn/active_fraction=0.5625`
+- retrieval remained healthy with `memory/retrieval_entropy` around `0.158-0.172`
+
+Next step:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed_lean 1337 5000
+./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed_lean 1437 5000
+./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed_lean 1537 5000
+```
