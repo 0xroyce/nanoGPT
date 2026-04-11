@@ -1774,6 +1774,7 @@ Current next branch:
 - start with chunk-level latent-state prediction on top of `chunked_autonomous`
 - have each selected chunk summary predict the next segment summary, rather than predicting detached hard-token losses
 - promote only if it keeps the existing chunked threshold edge while materially improving the fixed-budget `2000` result
+- the first plain cosine next-summary objective collapsed badly, so the next follow-up should use a contrastive target with negatives rather than direct cosine matching
 
 Important note:
 

@@ -374,6 +374,8 @@ class RetrievalMemory(nn.Module):
         self.event_boundary_use_teacher_for_writes = config.event_boundary_use_teacher_for_writes
         self.use_event_future_prediction = config.use_event_future_prediction
         self.event_future_prediction_weight = config.event_future_prediction_weight
+        self.event_future_prediction_mode = config.event_future_prediction_mode
+        self.event_future_prediction_temperature = config.event_future_prediction_temperature
         self.use_memory_local_learning = config.use_memory_local_learning
         self.memory_local_learning_weight = config.memory_local_learning_weight
         self.use_memory_utility_learning = config.use_memory_utility_learning
@@ -466,6 +468,13 @@ class RetrievalMemory(nn.Module):
                 raise ValueError("event_boundary_head_weight must be >= 0 when use_event_segmented_memory=True")
             if self.event_future_prediction_weight < 0.0:
                 raise ValueError("event_future_prediction_weight must be >= 0 when use_event_segmented_memory=True")
+            if self.event_future_prediction_mode not in {'cosine', 'contrastive'}:
+                raise ValueError(
+                    "event_future_prediction_mode must be one of {'cosine', 'contrastive'} "
+                    "when use_event_segmented_memory=True"
+                )
+            if self.event_future_prediction_temperature <= 0.0:
+                raise ValueError("event_future_prediction_temperature must be > 0 when use_event_segmented_memory=True")
             if self.use_chunked_episodic_memory:
                 summary_hidden_dim = self.event_summary_dim if self.event_summary_dim > 0 else config.n_embd
                 summary_feature_dim = config.n_embd * (8 if self.event_summary_mode == 'structured' else 4) + 1
@@ -572,6 +581,7 @@ class RetrievalMemory(nn.Module):
             'memory/event_future_prediction_loss': torch.tensor(0.0, device=device),
             'memory/event_future_prediction_cosine': torch.tensor(0.0, device=device),
             'memory/event_future_prediction_pairs': torch.tensor(0.0, device=device),
+            'memory/event_future_prediction_accuracy': torch.tensor(0.0, device=device),
         }
 
     def _get_default_write_metrics(self, device):
@@ -831,6 +841,7 @@ class RetrievalMemory(nn.Module):
         future_prediction_losses = []
         future_prediction_cosines = []
         future_prediction_pair_counts = []
+        future_prediction_accuracies = []
         self.last_event_aux_losses = {}
 
         for batch_idx in range(batch_size):
@@ -989,11 +1000,13 @@ class RetrievalMemory(nn.Module):
             if self.use_event_future_prediction:
                 predictive_inputs = []
                 predictive_targets = []
+                predictive_target_indices = []
                 for selected_idx in selected_indices.tolist():
                     if selected_idx >= segment_count - 1:
                         continue
                     predictive_inputs.append(segment_tensor[selected_idx])
                     predictive_targets.append(segment_tensor[selected_idx + 1].detach())
+                    predictive_target_indices.append(selected_idx + 1)
                 if predictive_inputs:
                     predictive_input_tensor = torch.stack(predictive_inputs, dim=0)
                     predictive_target_tensor = torch.stack(predictive_targets, dim=0)
@@ -1004,12 +1017,31 @@ class RetrievalMemory(nn.Module):
                         dim=-1,
                         eps=1e-8,
                     )
-                    future_prediction_losses.append(1.0 - future_cosine.mean())
+                    if self.event_future_prediction_mode == 'contrastive':
+                        predictive_labels = torch.tensor(
+                            predictive_target_indices,
+                            device=x.device,
+                            dtype=torch.long,
+                        )
+                        normalized_predicted = F.normalize(predicted_future, dim=-1, eps=1e-8)
+                        normalized_candidates = F.normalize(segment_tensor.detach(), dim=-1, eps=1e-8)
+                        contrastive_logits = torch.matmul(
+                            normalized_predicted,
+                            normalized_candidates.transpose(0, 1),
+                        ) / self.event_future_prediction_temperature
+                        future_prediction_losses.append(F.cross_entropy(contrastive_logits, predictive_labels))
+                        future_prediction_accuracies.append(
+                            float((contrastive_logits.argmax(dim=-1) == predictive_labels).float().mean().detach().item())
+                        )
+                    else:
+                        future_prediction_losses.append(1.0 - future_cosine.mean())
+                        future_prediction_accuracies.append(0.0)
                     future_prediction_cosines.append(float(future_cosine.mean().detach().item()))
                     future_prediction_pair_counts.append(float(predictive_input_tensor.size(0)))
                 else:
                     future_prediction_cosines.append(0.0)
                     future_prediction_pair_counts.append(0.0)
+                    future_prediction_accuracies.append(0.0)
 
         if boundary_losses:
             boundary_loss = torch.stack(boundary_losses).mean()
@@ -1040,9 +1072,15 @@ class RetrievalMemory(nn.Module):
                 device=x.device,
                 dtype=x.dtype,
             ).mean()
+            future_prediction_accuracy = torch.tensor(
+                future_prediction_accuracies,
+                device=x.device,
+                dtype=x.dtype,
+            ).mean()
         else:
             future_prediction_cosine = torch.zeros((), device=x.device, dtype=x.dtype)
             future_prediction_pairs = torch.zeros((), device=x.device, dtype=x.dtype)
+            future_prediction_accuracy = torch.zeros((), device=x.device, dtype=x.dtype)
 
         self.last_event_metrics = {
             'memory/event_segments': torch.tensor(segment_counts, device=x.device, dtype=x.dtype).mean(),
@@ -1072,6 +1110,7 @@ class RetrievalMemory(nn.Module):
             'memory/event_future_prediction_loss': future_prediction_loss.detach(),
             'memory/event_future_prediction_cosine': future_prediction_cosine.detach(),
             'memory/event_future_prediction_pairs': future_prediction_pairs.detach(),
+            'memory/event_future_prediction_accuracy': future_prediction_accuracy.detach(),
         }
         return event_summaries, event_valid, event_spans, event_utilities
 
@@ -1738,6 +1777,8 @@ class GPTConfig:
     event_boundary_use_teacher_for_writes: bool = False
     use_event_future_prediction: bool = False
     event_future_prediction_weight: float = 0.0
+    event_future_prediction_mode: str = 'cosine'
+    event_future_prediction_temperature: float = 0.1
     use_memory_local_learning: bool = False
     memory_local_learning_weight: float = 0.0
     use_memory_utility_learning: bool = False

@@ -1753,3 +1753,10 @@ python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval
 ./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous_predictive 1337 2000
 grep "step 2000" owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_chunked_learned_autonomous_predictive_nextseg_w0p05_w8_seed1337_2000.log
 ```
+
+### Chunked predictive contrastive benchmark
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous_predictive_contrastive 1337 2000
+grep "step 2000" owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_chunked_learned_autonomous_predictive_contrastive_t0p1_w0p01_w8_seed1337_2000.log
+```

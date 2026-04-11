@@ -1805,3 +1805,8 @@ Selective-write follow-up:
 - the new objective trains selected chunk summaries to predict the next segment summary in latent space, instead of predicting detached hard-token loss teachers
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_predictive` as the first richer memory-centered objective branch on top of the `chunked_autonomous` substrate
 - the branch should be judged first on whether it preserves the existing chunked threshold win and materially narrows the `2000`-step gap to the current `chunked_autonomous` frontier
+- the first `chunked_autonomous_predictive` pilot on seed `1337` collapsed badly to `6.4040` validation loss at `2000` steps
+- the auxiliary task became trivially easy at the same time, with `memory/event_future_prediction_cosine≈0.9965`, `memory/event_future_prediction_loss≈0.0010`, and very low episodic retrieval entropy, which strongly suggests representational collapse rather than useful memory shaping
+- current read: plain cosine next-summary prediction should be retired quickly on this substrate
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now also supports `event_future_prediction_mode=contrastive`, which replaces direct cosine matching with a next-segment classification objective over in-sequence negatives
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_predictive_contrastive` as the safer follow-up richer-objective branch, with a smaller weight and explicit temperature
