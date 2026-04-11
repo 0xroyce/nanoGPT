@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 4 ]]; then
-  echo "Usage: $0 {replay|replay_residual_routed|replay_episodic_utility|replay_episodic_utility_margin|replay_episodic_utility_floor|replay_consolidation|replay_write_gated|replay_write_gated_soft|working_memory_loop|heuristic|teacher_forced|autonomous|chunked_heuristic|chunked_autonomous|chunked_autonomous_recurrent|chunked_autonomous_novelty|chunked_autonomous_refresh|chunked_autonomous_structured|chunked_autonomous_predictive|chunked_autonomous_predictive_contrastive|chunked_autonomous_replay|chunked_autonomous_replay_delayed|recurrent_state} {seed} [max_iters] [profile]"
+  echo "Usage: $0 {replay|replay_residual_routed|replay_residual_routed_lean|replay_episodic_utility|replay_episodic_utility_margin|replay_episodic_utility_floor|replay_consolidation|replay_write_gated|replay_write_gated_soft|working_memory_loop|heuristic|teacher_forced|autonomous|chunked_heuristic|chunked_autonomous|chunked_autonomous_recurrent|chunked_autonomous_novelty|chunked_autonomous_refresh|chunked_autonomous_structured|chunked_autonomous_predictive|chunked_autonomous_predictive_contrastive|chunked_autonomous_replay|chunked_autonomous_replay_delayed|recurrent_state} {seed} [max_iters] [profile]"
   exit 1
 fi
 
@@ -60,6 +60,22 @@ case "$variant" in
       --memory_replay_weight=0.01
       --ffn_mode=token_residual_routed
       --ffn_token_fraction=0.25
+      --ffn_base_fraction=0.5
+      --ffn_routed_fraction=0.5
+      --ffn_router_uses_memory=True
+      --ffn_router_memory_scale=1.0
+    )
+    ;;
+  replay_residual_routed_lean)
+    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p125_b0p5_r0p5_memroute_w0p01_every32_bs4${profile_suffix}_seed${seed}_${max_iters}"
+    extra_args=(
+      --use_memory_replay_consolidation=True
+      --memory_replay_buffer_size=128
+      --memory_replay_every=32
+      --memory_replay_batch_size=4
+      --memory_replay_weight=0.01
+      --ffn_mode=token_residual_routed
+      --ffn_token_fraction=0.125
       --ffn_base_fraction=0.5
       --ffn_routed_fraction=0.5
       --ffn_router_uses_memory=True
