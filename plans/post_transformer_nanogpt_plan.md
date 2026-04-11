@@ -1785,6 +1785,9 @@ Current next branch:
 - the next pivot should leave the current memory-objective neighborhood and return to sparse compute, but without repeating the subtractive token-routing mistake
 - the right next architectural probe is an additive routed FFN: keep a smaller always-on FFN path for every token, then let memory-conditioned routing add a residual FFN sub-branch only for the top-scored tokens
 - this is the cleanest implemented test of context-dependent sub-block activation inside the FFN, and it can reduce effective FFN compute without deleting the baseline path that carried the replay winner
+- the first `replay_residual_routed` pilot on seed `1337` reached `2.1298` validation loss at `2000` steps
+- that beats replay `2.2464` by `0.1166` while holding FFN effective compute at `0.625` of dense, with healthy retrieval entropy around `0.166`
+- current read: this is the strongest sparse-compute result in the harness so far and should be replicated immediately across matched seeds before spending `5000`-step budget
 
 Important note:
 

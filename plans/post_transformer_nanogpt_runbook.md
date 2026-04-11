@@ -1802,3 +1802,21 @@ Useful diagnostics:
 grep -E "step 2000: (train|val) metrics|ffn/active_fraction|token_router/selected_fraction|token_router/effective_compute_fraction|token_router/gate_mean|memory/retrieval_entropy" \
   owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1337_2000.log
 ```
+
+First read:
+
+- seed `1337` reached `2.1298` validation loss at `2000` steps
+- replay baseline at the same point is `2.2464`
+- `token_router/effective_compute_fraction=0.6250`
+- retrieval stayed healthy with `memory/retrieval_entropy≈0.166`
+
+Next step:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed 1437 2000
+./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed 1537 2000
+grep "step 2000" \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1337_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1437_2000.log \
+  owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1537_2000.log
+```

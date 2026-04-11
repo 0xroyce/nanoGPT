@@ -1835,3 +1835,6 @@ Selective-write follow-up:
 - the new FFN reports both routed-token activity and effective compute fraction, so we can compare quality against actual FFN sparsity instead of only token counts
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_residual_routed` as the first sparse-compute pivot after retiring the recent memory-objective and chunk-hybrid lines
 - current read: this is the cleanest next test of context-dependent sub-block activation because it preserves a baseline FFN path while still targeting materially lower effective FFN compute than the dense replay winner
+- the first `replay_residual_routed` pilot on seed `1337` reached `2.1298` validation loss at `2000` steps
+- that beats replay `2.2464` by `0.1166` while keeping `ffn/active_fraction=0.6250`, `token_router/selected_fraction=0.2500`, and healthy retrieval entropy around `0.166`
+- current read: this is the strongest sparse-compute result so far in the harness, and it should move immediately to matched-seed replication before any further architectural tweaks
