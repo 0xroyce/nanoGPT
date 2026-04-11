@@ -386,6 +386,8 @@ class RetrievalMemory(nn.Module):
         self.episodic_utility_top_fraction = config.episodic_utility_top_fraction
         self.episodic_utility_teacher_mode = config.episodic_utility_teacher_mode
         self.episodic_utility_margin_strength = config.episodic_utility_margin_strength
+        self.episodic_utility_margin_floor = config.episodic_utility_margin_floor
+        self.episodic_utility_max_teacher_fraction = config.episodic_utility_max_teacher_fraction
         self.memory_update_during_eval = False
         self.last_router_hint = None
         self.last_memory_utility_logits = None
@@ -438,6 +440,15 @@ class RetrievalMemory(nn.Module):
             if self.use_episodic_utility_learning and self.episodic_utility_teacher_mode not in {'top_fraction', 'positive_margin'}:
                 raise ValueError(
                     "episodic_utility_teacher_mode must be one of {'top_fraction', 'positive_margin'} "
+                    "when use_episodic_utility_learning=True"
+                )
+            if self.use_episodic_utility_learning and self.episodic_utility_margin_floor < 0.0:
+                raise ValueError(
+                    "episodic_utility_margin_floor must be >= 0 when use_episodic_utility_learning=True"
+                )
+            if self.use_episodic_utility_learning and not 0.0 < self.episodic_utility_max_teacher_fraction <= 1.0:
+                raise ValueError(
+                    "episodic_utility_max_teacher_fraction must be in (0, 1] "
                     "when use_episodic_utility_learning=True"
                 )
             if self.episodic_write_gate_mode not in {'none', 'novelty'}:
@@ -1644,6 +1655,7 @@ class RetrievalMemory(nn.Module):
             'memory/episodic_utility_prediction_mean': torch.tensor(0.0, device=x.device),
             'memory/episodic_utility_margin': torch.tensor(0.0, device=x.device),
             'memory/episodic_utility_threshold': torch.tensor(0.0, device=x.device),
+            'memory/episodic_utility_margin_floor': torch.tensor(0.0, device=x.device),
         }
         if recurrent_state is not None:
             recurrent_valid_float = recurrent_valid.float()
@@ -1730,7 +1742,7 @@ class RetrievalMemory(nn.Module):
                     score_std = episodic_utility_scores.std(dim=1, keepdim=True, unbiased=False)
                     utility_threshold = torch.clamp(
                         score_mean + self.episodic_utility_margin_strength * score_std,
-                        min=0.0,
+                        min=self.episodic_utility_margin_floor,
                     )
                     episodic_teacher_mask = (episodic_utility_scores > utility_threshold).to(dtype=episodic_utility_scores.dtype)
                 else:
@@ -1744,6 +1756,23 @@ class RetrievalMemory(nn.Module):
                     teacher_indices = torch.topk(episodic_utility_scores, k=teacher_token_count, dim=1).indices
                     episodic_teacher_mask.scatter_(1, teacher_indices, 1.0)
                     utility_threshold = torch.topk(episodic_utility_scores, k=teacher_token_count, dim=1).values[:, -1:].detach()
+                max_teacher_count = max(
+                    1,
+                    min(
+                        x.size(1),
+                        int(math.ceil(x.size(1) * self.episodic_utility_max_teacher_fraction)),
+                    ),
+                )
+                current_teacher_counts = episodic_teacher_mask.sum(dim=1)
+                if bool((current_teacher_counts > max_teacher_count).any().item()):
+                    top_mask = torch.zeros_like(episodic_teacher_mask)
+                    top_indices = torch.topk(
+                        episodic_utility_scores,
+                        k=max_teacher_count,
+                        dim=1,
+                    ).indices
+                    top_mask.scatter_(1, top_indices, 1.0)
+                    episodic_teacher_mask = episodic_teacher_mask * top_mask
                 episodic_utility_logits = self.episodic_utility_head(episodic_retrieved).squeeze(-1)
                 aux_losses['episodic_utility_prediction_loss'] = F.binary_cross_entropy_with_logits(
                     episodic_utility_logits,
@@ -1755,6 +1784,10 @@ class RetrievalMemory(nn.Module):
                 )
                 metrics['memory/episodic_utility_margin'] = episodic_utility_scores.mean().detach()
                 metrics['memory/episodic_utility_threshold'] = utility_threshold.mean().detach()
+                metrics['memory/episodic_utility_margin_floor'] = torch.tensor(
+                    float(self.episodic_utility_margin_floor),
+                    device=x.device,
+                )
             aux_losses.update(self.last_event_aux_losses)
 
         return output, metrics, aux_losses
@@ -1857,6 +1890,8 @@ class GPTConfig:
     episodic_utility_top_fraction: float = 0.25
     episodic_utility_teacher_mode: str = 'top_fraction'
     episodic_utility_margin_strength: float = 0.5
+    episodic_utility_margin_floor: float = 0.0
+    episodic_utility_max_teacher_fraction: float = 1.0
     use_memory_replay_consolidation: bool = False
     memory_replay_buffer_size: int = 128
     memory_replay_every: int = 32

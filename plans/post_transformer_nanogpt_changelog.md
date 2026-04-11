@@ -1819,3 +1819,7 @@ Selective-write follow-up:
 - the utility mechanism was live, but the teacher margin was tiny (`memory/episodic_utility_margin≈0.0048`), which suggests the top-fraction teacher was supervising too many near-ties to add real value
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports `episodic_utility_teacher_mode=positive_margin`, which only supervises tokens where episodic retrieval beats the local path by a meaningful positive threshold
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_episodic_utility_margin` as the sharper replay-centered follow-up benchmark
+- the first `replay_episodic_utility_margin` pilot on seed `1337` improved slightly to `2.2529`, but still trailed replay `2.2464`
+- the mechanism remained stable, but the teacher was still not actually selective enough: `memory/episodic_utility_teacher_fraction≈0.316`, `memory/episodic_utility_margin≈0.0076`, `memory/episodic_utility_threshold≈0.0432`
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports an absolute utility floor plus a hard cap on teacher fraction for episodic-utility supervision
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `replay_episodic_utility_floor` as the stricter replay-side follow-up, using `margin_strength=0.5`, `margin_floor=0.05`, and `max_teacher_fraction=0.125`
