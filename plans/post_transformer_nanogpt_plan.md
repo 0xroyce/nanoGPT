@@ -1347,6 +1347,9 @@ Updated conclusion:
 - the first novelty-gated chunked follow-up did not preserve the frontier signal:
   on seed `1337` at `2000` steps, `chunked_autonomous_novelty` reached `2.1889`
   that beats replay `2.2464` but badly trails the current `chunked_autonomous` reference at `2.0518`
+- the first similarity-refresh follow-up improves on the failed admission gate but still misses the frontier:
+  on seed `1337` at `2000` steps, `chunked_autonomous_refresh` reached `2.1684`
+  that beats replay `2.2464` by about `0.0780`, but still trails the current `chunked_autonomous` reference at `2.0518` by about `0.1166`
 
 Updated recommendation:
 

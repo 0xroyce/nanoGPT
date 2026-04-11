@@ -109,6 +109,7 @@ Execution policy from here:
 6. `chunked_autonomous_novelty` is now the first such revision: it keeps learned chunk boundaries but gates chunk admission using both local chunk utility and novelty against the existing episodic bank
 7. the first seed-`1337` pilot for `chunked_autonomous_novelty` reached `2.1889` at `2000` steps, so the gate is live but this exact recipe is not competitive with the current chunked frontier
 8. `chunked_autonomous_refresh` is now the next revision: it keeps chunk admission intact and instead uses novelty to influence which existing episodic slot gets refreshed
+9. the first seed-`1337` pilot for `chunked_autonomous_refresh` reached `2.1684` at `2000` steps, so the replacement policy is live but still not strong enough to justify matched-seed replication
 
 Prototype B heuristic status update:
 

@@ -1793,3 +1793,6 @@ Selective-write follow-up:
 - current read: this exact novelty-gated chunked recipe should not be promoted to matched-seed replication; the mechanism is live, but it is too destructive to the short-run quality signal
 - [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now also supports `episodic_replacement_mode=similarity_refresh`, which keeps chunk admission intact and uses novelty to bias overwrite choice toward refreshing similar slots for redundant chunks while still allowing FIFO-like behavior for novel chunks
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_refresh` as the next revised chunked-memory benchmark after the failed admission-gating recipe
+- the first `chunked_autonomous_refresh` pilot on seed `1337` reached `2.1684` validation loss at `2000` steps
+- that is cleaner than the failed admission-gating recipe and beats replay's `2.2464`, while showing the intended always-write behavior with `memory/write_fraction=1.0`, but it still falls well short of the current `chunked_autonomous` frontier at `2.0518`
+- current read: similarity-refresh is a healthier modification than novelty-gated admission, but this exact refresh heuristic should still not be promoted to matched-seed replication
