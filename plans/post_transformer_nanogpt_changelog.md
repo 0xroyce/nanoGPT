@@ -1801,3 +1801,7 @@ Selective-write follow-up:
 - the first `chunked_autonomous_structured` pilot on seed `1337` reached `2.1884` validation loss at `2000` steps
 - that still beats replay's `2.2464`, but it lands essentially in the same weak band as the failed novelty-admission branch and well behind the current `chunked_autonomous` frontier at `2.0518`
 - current read: richer handcrafted chunk-summary features are not the missing ingredient either, at least in this first form
+- [model.py](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/model.py) now supports a chunk-level latent prediction objective for event-segmented memory via `use_event_future_prediction=True`
+- the new objective trains selected chunk summaries to predict the next segment summary in latent space, instead of predicting detached hard-token loss teachers
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now supports `chunked_autonomous_predictive` as the first richer memory-centered objective branch on top of the `chunked_autonomous` substrate
+- the branch should be judged first on whether it preserves the existing chunked threshold win and materially narrows the `2000`-step gap to the current `chunked_autonomous` frontier

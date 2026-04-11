@@ -1746,3 +1746,10 @@ python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval
 python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=0.5 --log_experiment_metrics=True --compile=False --out_dir=out-memory-s32-k4-w05 | tee memory_s32_k4_w05.log
 python train.py config/train_shakespeare_char.py --max_iters=500 --eval_interval=100 --use_retrieval_memory=True --memory_slots=32 --memory_topk=4 --memory_retrieval_weight=1.5 --log_experiment_metrics=True --compile=False --out_dir=out-memory-s32-k4-w15 | tee memory_s32_k4_w15.log
 ```
+
+### Chunked predictive objective benchmark
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh chunked_autonomous_predictive 1337 2000
+grep "step 2000" owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_chunked_learned_autonomous_predictive_nextseg_w0p05_w8_seed1337_2000.log
+```
