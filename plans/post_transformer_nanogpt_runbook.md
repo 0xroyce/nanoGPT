@@ -1810,7 +1810,7 @@ First read:
 - `token_router/effective_compute_fraction=0.6250`
 - retrieval stayed healthy with `memory/retrieval_entropy≈0.166`
 
-Next step:
+Matched-seed replication:
 
 ```bash
 ./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed 1437 2000
@@ -1819,4 +1819,20 @@ grep "step 2000" \
   owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1337_2000.log \
   owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1437_2000.log \
   owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1537_2000.log
+```
+
+Replication read:
+
+- residual-routed val losses: `2.1298`, `2.0761`, `2.0094`
+- residual-routed mean: `2.0718`
+- replay matched-seed mean: `2.2120`
+- mean gain: `0.1402`
+- every seed kept `ffn/active_fraction=0.6250` and healthy retrieval entropy
+
+Next step:
+
+```bash
+./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed 1337 5000
+./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed 1437 5000
+./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed 1537 5000
 ```

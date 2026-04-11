@@ -1837,4 +1837,6 @@ Selective-write follow-up:
 - current read: this is the cleanest next test of context-dependent sub-block activation because it preserves a baseline FFN path while still targeting materially lower effective FFN compute than the dense replay winner
 - the first `replay_residual_routed` pilot on seed `1337` reached `2.1298` validation loss at `2000` steps
 - that beats replay `2.2464` by `0.1166` while keeping `ffn/active_fraction=0.6250`, `token_router/selected_fraction=0.2500`, and healthy retrieval entropy around `0.166`
-- current read: this is the strongest sparse-compute result so far in the harness, and it should move immediately to matched-seed replication before any further architectural tweaks
+- matched-seed replication held decisively at `2000` steps: `2.1298`, `2.0761`, `2.0094`, for a `2.0718` mean
+- that beats the replay matched-seed mean `2.2120` by `0.1402`, while all three runs kept `ffn/active_fraction=0.6250`, `token_router/selected_fraction=0.2500`, and healthy retrieval entropy
+- current read: this is the strongest sparse-compute result so far in the harness and the clearest new promotion candidate; it should move immediately to matched-seed `5000` evaluation

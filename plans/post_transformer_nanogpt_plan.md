@@ -1787,7 +1787,9 @@ Current next branch:
 - this is the cleanest implemented test of context-dependent sub-block activation inside the FFN, and it can reduce effective FFN compute without deleting the baseline path that carried the replay winner
 - the first `replay_residual_routed` pilot on seed `1337` reached `2.1298` validation loss at `2000` steps
 - that beats replay `2.2464` by `0.1166` while holding FFN effective compute at `0.625` of dense, with healthy retrieval entropy around `0.166`
-- current read: this is the strongest sparse-compute result in the harness so far and should be replicated immediately across matched seeds before spending `5000`-step budget
+- matched-seed replication held decisively: `2.1298`, `2.0761`, `2.0094` for a `2.0718` mean at `2000` steps
+- that beats the replay matched-seed mean `2.2120` by `0.1402`, while every seed kept `ffn/active_fraction=0.6250` and healthy retrieval entropy in roughly the `0.151-0.166` range
+- current read: this is the strongest sparse-compute result in the harness so far and should be promoted immediately to the next matched-seed `5000` comparison
 
 Important note:
 
