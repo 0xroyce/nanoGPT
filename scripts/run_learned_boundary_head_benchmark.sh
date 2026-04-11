@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 4 ]]; then
-  echo "Usage: $0 {replay|replay_consolidation|replay_write_gated|replay_write_gated_soft|working_memory_loop|heuristic|teacher_forced|autonomous|chunked_heuristic|chunked_autonomous|chunked_autonomous_novelty|chunked_autonomous_replay|chunked_autonomous_replay_delayed|recurrent_state} {seed} [max_iters] [profile]"
+  echo "Usage: $0 {replay|replay_consolidation|replay_write_gated|replay_write_gated_soft|working_memory_loop|heuristic|teacher_forced|autonomous|chunked_heuristic|chunked_autonomous|chunked_autonomous_novelty|chunked_autonomous_refresh|chunked_autonomous_replay|chunked_autonomous_replay_delayed|recurrent_state} {seed} [max_iters] [profile]"
   exit 1
 fi
 
@@ -181,6 +181,23 @@ case "$variant" in
       --event_boundary_head_weight=0.1
       --episodic_write_gate_mode=novelty
       --episodic_write_fraction=0.75
+    )
+    ;;
+  chunked_autonomous_refresh)
+    out_name="owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_eventseg_chunked_learned_autonomous_refreshsim_w8${profile_suffix}_seed${seed}_${max_iters}"
+    extra_args=(
+      --use_event_segmented_memory=True
+      --use_chunked_episodic_memory=True
+      --event_boundary_mode=learned_boundary_head
+      --event_boundary_teacher_mode=hidden_state_novelty
+      --event_boundary_use_teacher_for_writes=False
+      --event_max_segments=8
+      --event_write_topk=8
+      --event_summary_dim=384
+      --event_boundary_weight=1.5
+      --use_aux_losses=True
+      --event_boundary_head_weight=0.1
+      --episodic_replacement_mode=similarity_refresh
     )
     ;;
   chunked_autonomous_replay)

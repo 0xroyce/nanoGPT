@@ -359,6 +359,7 @@ class RetrievalMemory(nn.Module):
         self.episodic_memory_weight = config.episodic_memory_weight
         self.episodic_write_gate_mode = config.episodic_write_gate_mode
         self.episodic_write_fraction = config.episodic_write_fraction
+        self.episodic_replacement_mode = config.episodic_replacement_mode
         self.use_event_segmented_memory = config.use_event_segmented_memory
         self.use_chunked_episodic_memory = config.use_chunked_episodic_memory
         self.event_boundary_mode = config.event_boundary_mode
@@ -425,6 +426,10 @@ class RetrievalMemory(nn.Module):
                 )
             if not 0.0 < self.episodic_write_fraction <= 1.0:
                 raise ValueError("episodic_write_fraction must be in (0, 1] when use_episodic_memory=True")
+            if self.episodic_replacement_mode not in {'fifo', 'similarity_refresh'}:
+                raise ValueError(
+                    "episodic_replacement_mode must be one of {'fifo', 'similarity_refresh'} when use_episodic_memory=True"
+                )
             self.register_buffer("episodic_memory", torch.zeros(0, self.episodic_memory_slots, config.n_embd))
             self.register_buffer("episodic_memory_valid", torch.zeros(0, self.episodic_memory_slots, dtype=torch.bool))
             self.register_buffer("episodic_memory_ptr", torch.zeros(0, dtype=torch.long))
@@ -620,6 +625,26 @@ class RetrievalMemory(nn.Module):
         novelty = 1.0 - max_similarity
         novelty = torch.where(has_valid, novelty, torch.ones_like(novelty))
         return novelty
+
+    def _select_episodic_target_index(self, batch_idx, summary, novelty_signal=None):
+        valid_mask = self.episodic_memory_valid[batch_idx]
+        invalid_indices = torch.nonzero(~valid_mask, as_tuple=False).squeeze(-1)
+        if invalid_indices.numel() > 0:
+            return int(invalid_indices[0].item()), False
+
+        ptr_idx = int(self.episodic_memory_ptr[batch_idx].item())
+        if self.episodic_replacement_mode == 'fifo':
+            return ptr_idx, True
+
+        memory = self.episodic_memory[batch_idx]
+        normalized_summary = F.normalize(summary.detach().unsqueeze(0), dim=-1, eps=1e-8)
+        normalized_memory = F.normalize(memory.detach(), dim=-1, eps=1e-8)
+        similarity = torch.matmul(normalized_memory, normalized_summary.squeeze(0))
+        similarity = 0.5 * (similarity + 1.0)
+        novelty_value = 0.5 if novelty_signal is None else float(novelty_signal.item())
+        replacement_scores = (1.0 - novelty_value) * similarity
+        replacement_scores[ptr_idx] = replacement_scores[ptr_idx] + novelty_value
+        return int(torch.argmax(replacement_scores).item()), True
 
     def _project_event_summary(self, segment, token_count):
         summary = segment.mean(dim=0)
@@ -1048,6 +1073,7 @@ class RetrievalMemory(nn.Module):
             flat_spans = torch.cat(flat_spans, dim=0)
             flat_local_utilities = torch.cat(flat_local_utilities, dim=0)
             flat_batch_indices = torch.cat(flat_batch_indices, dim=0)
+            replacement_novelty = None
 
             if self.episodic_write_gate_mode == 'novelty':
                 novelty_signal = self._compute_episodic_write_novelty(flat_summaries, batch_indices=flat_batch_indices)
@@ -1068,16 +1094,27 @@ class RetrievalMemory(nn.Module):
                 gate_probs = torch.ones(flat_summaries.size(0), device=flat_summaries.device, dtype=flat_summaries.dtype)
                 teacher_signal = flat_local_utilities
                 write_mask = torch.ones(flat_summaries.size(0), device=flat_summaries.device, dtype=torch.bool)
+                if self.episodic_replacement_mode == 'similarity_refresh':
+                    replacement_novelty = self._compute_episodic_write_novelty(
+                        flat_summaries,
+                        batch_indices=flat_batch_indices,
+                    ).clamp(0.0, 1.0)
 
             refresh_flags = []
             for candidate_idx in torch.nonzero(write_mask, as_tuple=False).squeeze(-1).tolist():
                 batch_idx = int(flat_batch_indices[candidate_idx].item())
-                start = int(self.episodic_memory_ptr[batch_idx].item())
-                refresh_flags.append(self.episodic_memory_valid[batch_idx, start])
-                self.episodic_memory[batch_idx, start] = flat_summaries[candidate_idx]
-                self.episodic_memory_valid[batch_idx, start] = True
-                self.episodic_memory_span[batch_idx, start] = flat_spans[candidate_idx]
-                self.episodic_memory_ptr[batch_idx] = (start + 1) % self.episodic_memory_slots
+                novelty_signal = None if replacement_novelty is None else replacement_novelty[candidate_idx]
+                target_idx, refreshed = self._select_episodic_target_index(
+                    batch_idx,
+                    flat_summaries[candidate_idx],
+                    novelty_signal=novelty_signal,
+                )
+                refresh_flags.append(torch.tensor(refreshed, device=flat_summaries.device, dtype=torch.bool))
+                self.episodic_memory[batch_idx, target_idx] = flat_summaries[candidate_idx]
+                self.episodic_memory_valid[batch_idx, target_idx] = True
+                self.episodic_memory_span[batch_idx, target_idx] = flat_spans[candidate_idx]
+                if target_idx == int(self.episodic_memory_ptr[batch_idx].item()):
+                    self.episodic_memory_ptr[batch_idx] = (target_idx + 1) % self.episodic_memory_slots
 
             refresh_mask = (
                 torch.stack(refresh_flags, dim=0)
@@ -1587,6 +1624,7 @@ class GPTConfig:
     episodic_memory_weight: float = 0.0
     episodic_write_gate_mode: str = 'none'
     episodic_write_fraction: float = 1.0
+    episodic_replacement_mode: str = 'fifo'
     use_event_segmented_memory: bool = False
     use_chunked_episodic_memory: bool = False
     event_boundary_mode: str = 'hidden_state_novelty'
