@@ -1789,7 +1789,9 @@ Current next branch:
 - that beats replay `2.2464` by `0.1166` while holding FFN effective compute at `0.625` of dense, with healthy retrieval entropy around `0.166`
 - matched-seed replication held decisively: `2.1298`, `2.0761`, `2.0094` for a `2.0718` mean at `2000` steps
 - that beats the replay matched-seed mean `2.2120` by `0.1402`, while every seed kept `ffn/active_fraction=0.6250` and healthy retrieval entropy in roughly the `0.151-0.166` range
-- current read: this is the strongest sparse-compute result in the harness so far and should be promoted immediately to the next matched-seed `5000` comparison
+- matched-seed `5000` runs also held: `1.1917`, `1.1980`, `1.2034` for a `1.1977` mean
+- that beats the replay `5000` mean `1.2296` by `0.0319`, while all three runs still held `ffn/active_fraction=0.6250` and healthy retrieval entropy in roughly the `0.183-0.204` range
+- current read: this is the first branch in the harness that looks like a genuine step toward the original goal, because it improves both short-run and endpoint quality while reducing effective FFN compute
 
 Important note:
 

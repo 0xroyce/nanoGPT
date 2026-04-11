@@ -1836,3 +1836,12 @@ Next step:
 ./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed 1437 5000
 ./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed 1537 5000
 ```
+
+`5000`-step read:
+
+- residual-routed val losses: `1.1917`, `1.1980`, `1.2034`
+- residual-routed mean: `1.1977`
+- replay `5000` mean: `1.2296`
+- mean gain: `0.0319`
+- every seed still kept `ffn/active_fraction=0.6250`
+- retrieval remained healthy with `memory/retrieval_entropy` around `0.183-0.204`
