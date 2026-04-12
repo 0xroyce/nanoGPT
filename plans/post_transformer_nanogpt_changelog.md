@@ -1849,3 +1849,6 @@ Selective-write follow-up:
 - matched-seed `5000` runs for the lean branch reached `1.2023`, `1.1994`, `1.1938`, for a `1.1985` mean
 - that still beats dense replay `1.2296` by `0.0311`, but trails the original residual-routed mean `1.1977` by `0.0008`
 - current read: the lean branch is the strongest lower-compute tradeoff point so far, but it does not yet clearly replace the original residual-routed setting as the best endpoint branch
+- three-way dual-score comparison resolved the tradeoff cleanly:
+  original residual-routed still wins the `5000` endpoint, lean ties it at `1.90`, wins `1.75` by `200` steps, and ties again by `1.65`
+- current read: residual-routed replay now has a real two-point Pareto frontier, so the next step should be an intermediate routed-fraction sweep rather than a pivot away from the family

@@ -1796,6 +1796,8 @@ Current next branch:
 - that beats the original residual-routed mean `2.0718` by `0.0426` and the replay mean `2.2120` by `0.1828`, while reducing effective FFN compute further to `0.5625`
 - matched-seed `5000` runs for the lean branch reached `1.2023`, `1.1994`, `1.1938` for a `1.1985` mean
 - that still beats dense replay `1.2296` by `0.0311`, but it trails the original residual-routed branch `1.1977` by `0.0008`
+- dual-score comparison resolves the tradeoff cleanly:
+  `f0p25` is still the best endpoint branch, while lean `f0p125` ties it at `1.90`, wins `1.75` by `200` steps, and ties again by `1.65`
 - current read: the lean branch is a real lower-compute win over dense replay, but it no longer cleanly dominates the original residual-routed setting at the endpoint; for now the original `f0p25` branch stays the primary baseline and the lean `f0p125` branch becomes the strongest lower-compute tradeoff point
 - current read: this remains the clearest step toward the original goal so far, because both residual-routed branches improve quality over dense replay while materially reducing FFN compute; the next step is to quantify whether the lean branch wins enough earlier to justify its tiny late-stage regression
 
@@ -1806,10 +1808,10 @@ Important note:
 
 ### Current Execution Order
 
-1. keep replay frozen as the dense reference branch at `5000` steps, and treat original residual-routed replay as the current primary promotion branch
+1. keep replay frozen as the dense reference branch at `5000` steps, and treat original residual-routed replay as the endpoint leader
 2. score future candidates with a dual benchmark:
    fixed-budget endpoint loss plus explicit time-to-threshold analysis
-3. treat residual-routed replay as the main architecture family because it is now the strongest validated branch overall, with `f0p25` as the current leader and `f0p125` as the strongest lower-compute tradeoff
+3. treat residual-routed replay as the main architecture family because it is now the strongest validated branch overall, with `f0p25` as the endpoint leader and `f0p125` as the sample-efficiency / lower-compute leader
 4. do not spend routine budget on standalone learned-boundary sweeps, replay-consolidation sweeps, replay-side utility objectives, or weak chunked follow-ups
 5. the next serious implementation should be a narrow sweep around the residual-routed compute split rather than a new memory-side micro-variant
 6. only promote a new branch to matched-seed `5000` runs if it shows either:
@@ -1819,9 +1821,9 @@ Important note:
 
 ### Concrete Next Three Experiments
 
-1. run dual-score threshold analysis comparing lean residual-routed, original residual-routed, and dense replay
-2. use that result to decide whether the lean branch is the better practical operating point despite trailing the original branch slightly at `5000`
-3. only after the residual-routed `f0p25` vs `f0p125` tradeoff is mapped should we revisit chunked-memory integration or more ambitious sparse-branch compositions
+1. add one more residual-routed sweep between the current two operating points, likely `ffn_token_fraction=0.1875`, to map the frontier instead of guessing between extremes
+2. compare that middle branch against both `f0p25` and `f0p125` on endpoint and thresholds, not just against dense replay
+3. only after the residual-routed frontier is mapped should we revisit chunked-memory integration or more ambitious sparse-branch compositions
 
 ### Success Criteria for Phase 7
 

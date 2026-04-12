@@ -1901,3 +1901,16 @@ python scripts/analyze_threshold_benchmark.py \
   --threshold 1.75 \
   --threshold 1.65
 ```
+
+Three-way dual-score read:
+
+- endpoint winner: original residual-routed `1.1977`
+- threshold `<= 1.90`: original and lean tie at `1800`
+- threshold `<= 1.75`: lean wins at `2000` vs original `2200`
+- threshold `<= 1.65`: original and lean tie at `2400`
+
+Interpretation:
+
+- `f0p25` is the best endpoint operating point
+- `f0p125` is the best lower-compute / sample-efficiency operating point
+- the next sweep should be an intermediate routed fraction, not a jump to a different architecture family
