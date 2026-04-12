@@ -1846,4 +1846,6 @@ Selective-write follow-up:
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now also supports `replay_residual_routed_lean` as the first follow-up sweep around the winning residual-routed branch, lowering `ffn_token_fraction` from `0.25` to `0.125` while keeping the rest fixed
 - lean residual-routed replication held decisively at `2000` steps: `2.0686`, `2.0351`, `1.9840`, for a `2.0292` mean
 - that beats the original residual-routed mean `2.0718` by `0.0426` and the dense replay mean `2.2120` by `0.1828`, while all three runs held `ffn/active_fraction=0.5625`
-- current read: the lean residual-routed setting is now the strongest branch in the harness and should move immediately to matched-seed `5000` evaluation
+- matched-seed `5000` runs for the lean branch reached `1.2023`, `1.1994`, `1.1938`, for a `1.1985` mean
+- that still beats dense replay `1.2296` by `0.0311`, but trails the original residual-routed mean `1.1977` by `0.0008`
+- current read: the lean branch is the strongest lower-compute tradeoff point so far, but it does not yet clearly replace the original residual-routed setting as the best endpoint branch

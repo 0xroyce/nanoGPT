@@ -1878,3 +1878,26 @@ Next step:
 ./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed_lean 1437 5000
 ./scripts/run_learned_boundary_head_benchmark.sh replay_residual_routed_lean 1537 5000
 ```
+
+Lean `5000`-step read:
+
+- lean residual-routed val losses: `1.2023`, `1.1994`, `1.1938`
+- lean residual-routed mean: `1.1985`
+- original residual-routed mean: `1.1977`
+- dense replay mean: `1.2296`
+- mean gain vs dense replay: `0.0311`
+- mean gap vs original residual-routed: `0.0008`
+- every seed still kept `ffn/active_fraction=0.5625`
+- retrieval remained healthy with `memory/retrieval_entropy` around `0.183-0.199`
+
+Next step:
+
+```bash
+python scripts/analyze_threshold_benchmark.py \
+  --group replay=owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1337_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1437_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_w0p01_every32_bs4_seed1537_5000.log \
+  --group replay_residual_routed=owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1337_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1437_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p25_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1537_5000.log \
+  --group replay_residual_routed_lean=owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p125_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1337_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p125_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1437_5000.log,owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p125_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1537_5000.log \
+  --threshold 1.90 \
+  --threshold 1.75 \
+  --threshold 1.65
+```
