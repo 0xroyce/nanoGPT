@@ -1858,3 +1858,4 @@ Selective-write follow-up:
 - midpoint replication settled the picture at `2000`: `2.0383`, `2.0855`, `2.0445`, for a `2.0561` mean
 - that beats the original residual-routed mean `2.0718` by `0.0157`, but trails the lean mean `2.0292` by `0.0269` while also using more compute than lean
 - current read: the midpoint was a useful frontier check, but it is a dominated interior point and should not move to `5000`
+- decision: standardize on original residual-routed `f0p25` as the official primary branch, and retain lean `f0p125` as the documented lower-compute alternative

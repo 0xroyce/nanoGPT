@@ -1915,6 +1915,12 @@ Interpretation:
 - `f0p125` is the best lower-compute / sample-efficiency operating point
 - the next sweep should be an intermediate routed fraction, not a jump to a different architecture family
 
+Decision:
+
+- standardize on `f0p25` as the official primary branch
+- keep `f0p125` documented as the lower-compute alternative
+- do not spend more interpolation budget inside this family unless there is a new objective beyond simple routed-fraction tuning
+
 Midpoint pilot:
 
 ```bash

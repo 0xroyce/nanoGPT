@@ -1800,7 +1800,7 @@ Current next branch:
 - that still beats dense replay `1.2296` by `0.0311`, but it trails the original residual-routed branch `1.1977` by `0.0008`
 - dual-score comparison resolves the tradeoff cleanly:
   `f0p25` is still the best endpoint branch, while lean `f0p125` ties it at `1.90`, wins `1.75` by `200` steps, and ties again by `1.65`
-- current read: the lean branch is a real lower-compute win over dense replay, but it no longer cleanly dominates the original residual-routed setting at the endpoint; for now the original `f0p25` branch stays the primary baseline and the lean `f0p125` branch becomes the strongest lower-compute tradeoff point
+- current read: the lean branch is a real lower-compute win over dense replay, but it no longer cleanly dominates the original residual-routed setting at the endpoint; the project should now standardize on original `f0p25` as the official primary branch and keep lean `f0p125` as the strongest lower-compute tradeoff point
 - current read: the midpoint `f0p1875` branch is a useful interior check, but at `2000` it is already dominated by the lean branch, so it should not be promoted to matched-seed `5000`
 - current read: this remains the clearest step toward the original goal so far, because both residual-routed branches improve quality over dense replay while materially reducing FFN compute; the next step is to quantify whether the lean branch wins enough earlier to justify its tiny late-stage regression
 
@@ -1811,7 +1811,7 @@ Important note:
 
 ### Current Execution Order
 
-1. keep replay frozen as the dense reference branch at `5000` steps, and treat original residual-routed replay as the endpoint leader
+1. keep replay frozen as the dense reference branch at `5000` steps, and treat original residual-routed replay (`f0p25`) as the official primary branch
 2. score future candidates with a dual benchmark:
    fixed-budget endpoint loss plus explicit time-to-threshold analysis
 3. treat residual-routed replay as the main architecture family because it is now the strongest validated branch overall, with `f0p25` as the endpoint leader and `f0p125` as the sample-efficiency / lower-compute leader
@@ -1824,7 +1824,7 @@ Important note:
 
 ### Concrete Next Three Experiments
 
-1. keep `f0p25` as the endpoint leader and `f0p125` as the lower-compute / threshold leader
+1. keep `f0p25` as the official primary branch and `f0p125` as the lower-compute / threshold leader
 2. do not spend `5000` budget on the dominated midpoint `f0p1875` branch
 3. only after deciding which operating point we care about most should we revisit chunked-memory integration or more ambitious sparse-branch compositions
 
