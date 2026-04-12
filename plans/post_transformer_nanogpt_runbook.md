@@ -1938,3 +1938,19 @@ grep "step 2000" \
   owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p1875_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1437_2000.log \
   owt_memory_s32_k4_multiscale_x15_episodic_w0p0625_replay_residualrouted_f0p1875_b0p5_r0p5_memroute_w0p01_every32_bs4_seed1537_2000.log
 ```
+
+Midpoint replication read:
+
+- midpoint residual-routed val losses: `2.0383`, `2.0855`, `2.0445`
+- midpoint residual-routed mean: `2.0561`
+- original residual-routed mean: `2.0718`
+- lean residual-routed mean: `2.0292`
+- mean gain vs original residual-routed: `0.0157`
+- mean gap vs lean residual-routed: `0.0269`
+- every seed held `ffn/active_fraction=0.5938`
+
+Interpretation:
+
+- midpoint is better than the original `f0p25` branch at `2000`
+- midpoint is worse than the lean `f0p125` branch at `2000` while using more compute
+- so midpoint is currently a dominated interior point and should not move to `5000`

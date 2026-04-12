@@ -1855,3 +1855,6 @@ Selective-write follow-up:
 - [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now also supports `replay_residual_routed_mid` for the `ffn_token_fraction=0.1875` midpoint sweep
 - the first midpoint pilot on seed `1337` reached `2.0383` validation loss at `2000` steps with `ffn/active_fraction=0.5938`
 - that beats both current residual-routed operating points on the same seed, so the midpoint is now worth immediate matched-seed replication
+- midpoint replication settled the picture at `2000`: `2.0383`, `2.0855`, `2.0445`, for a `2.0561` mean
+- that beats the original residual-routed mean `2.0718` by `0.0157`, but trails the lean mean `2.0292` by `0.0269` while also using more compute than lean
+- current read: the midpoint was a useful frontier check, but it is a dominated interior point and should not move to `5000`

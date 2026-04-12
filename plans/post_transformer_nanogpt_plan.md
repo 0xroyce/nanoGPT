@@ -1794,11 +1794,14 @@ Current next branch:
 - dual-score analysis also held cleanly: residual-routed reached `1.90`, `1.75`, and `1.65` about `200` steps earlier than replay while still winning the `5000` endpoint
 - the lean follow-up also replicated at `2000` steps: `2.0686`, `2.0351`, `1.9840` for a `2.0292` mean
 - that beats the original residual-routed mean `2.0718` by `0.0426` and the replay mean `2.2120` by `0.1828`, while reducing effective FFN compute further to `0.5625`
+- the midpoint follow-up replicated at `2000` steps: `2.0383`, `2.0855`, `2.0445` for a `2.0561` mean
+- that beats the original residual-routed mean `2.0718` by `0.0157`, but trails the lean branch `2.0292` by `0.0269` while also using more compute (`0.5938` vs `0.5625`)
 - matched-seed `5000` runs for the lean branch reached `1.2023`, `1.1994`, `1.1938` for a `1.1985` mean
 - that still beats dense replay `1.2296` by `0.0311`, but it trails the original residual-routed branch `1.1977` by `0.0008`
 - dual-score comparison resolves the tradeoff cleanly:
   `f0p25` is still the best endpoint branch, while lean `f0p125` ties it at `1.90`, wins `1.75` by `200` steps, and ties again by `1.65`
 - current read: the lean branch is a real lower-compute win over dense replay, but it no longer cleanly dominates the original residual-routed setting at the endpoint; for now the original `f0p25` branch stays the primary baseline and the lean `f0p125` branch becomes the strongest lower-compute tradeoff point
+- current read: the midpoint `f0p1875` branch is a useful interior check, but at `2000` it is already dominated by the lean branch, so it should not be promoted to matched-seed `5000`
 - current read: this remains the clearest step toward the original goal so far, because both residual-routed branches improve quality over dense replay while materially reducing FFN compute; the next step is to quantify whether the lean branch wins enough earlier to justify its tiny late-stage regression
 
 Important note:
@@ -1821,9 +1824,9 @@ Important note:
 
 ### Concrete Next Three Experiments
 
-1. add one more residual-routed sweep between the current two operating points, likely `ffn_token_fraction=0.1875`, to map the frontier instead of guessing between extremes
-2. compare that middle branch against both `f0p25` and `f0p125` on endpoint and thresholds, not just against dense replay
-3. only after the residual-routed frontier is mapped should we revisit chunked-memory integration or more ambitious sparse-branch compositions
+1. keep `f0p25` as the endpoint leader and `f0p125` as the lower-compute / threshold leader
+2. do not spend `5000` budget on the dominated midpoint `f0p1875` branch
+3. only after deciding which operating point we care about most should we revisit chunked-memory integration or more ambitious sparse-branch compositions
 
 ### Success Criteria for Phase 7
 
