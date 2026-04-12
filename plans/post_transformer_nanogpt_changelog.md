@@ -1852,3 +1852,6 @@ Selective-write follow-up:
 - three-way dual-score comparison resolved the tradeoff cleanly:
   original residual-routed still wins the `5000` endpoint, lean ties it at `1.90`, wins `1.75` by `200` steps, and ties again by `1.65`
 - current read: residual-routed replay now has a real two-point Pareto frontier, so the next step should be an intermediate routed-fraction sweep rather than a pivot away from the family
+- [run_learned_boundary_head_benchmark.sh](/Users/0xroyce/WebstormProjects/Phoenix/nanoGPT/scripts/run_learned_boundary_head_benchmark.sh) now also supports `replay_residual_routed_mid` for the `ffn_token_fraction=0.1875` midpoint sweep
+- the first midpoint pilot on seed `1337` reached `2.0383` validation loss at `2000` steps with `ffn/active_fraction=0.5938`
+- that beats both current residual-routed operating points on the same seed, so the midpoint is now worth immediate matched-seed replication
